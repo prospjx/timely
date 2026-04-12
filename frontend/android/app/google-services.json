@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "129058077615",
+    "project_id": "kairos-a5c86",
+    "storage_bucket": "kairos-a5c86.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:129058077615:android:05629fba53507777280d5a",
+        "android_client_info": {
+          "package_name": "com.example.kairos"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "YOUR_API_KEY_HERE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
