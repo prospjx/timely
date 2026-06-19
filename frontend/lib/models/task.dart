@@ -61,7 +61,7 @@ class TaskDraft {
     return <String, dynamic>{
       'title': title,
       'priority': priority.backendWord,
-      'deadline': scheduledAt.toIso8601String(),
+      'deadline': scheduledAt.toUtc().toIso8601String(),
       'estimated_minutes': durationMinutes,
     };
   }
@@ -70,8 +70,8 @@ class TaskDraft {
     return <String, dynamic>{
       'title': title,
       'priority': priority.backendWord,
-      'start_time': scheduledAt.toIso8601String(),
-      'end_time': eventEndTime.toIso8601String(),
+      'start_time': scheduledAt.toUtc().toIso8601String(),
+      'end_time': eventEndTime.toUtc().toIso8601String(),
     };
   }
 

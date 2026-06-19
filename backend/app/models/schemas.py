@@ -1,6 +1,6 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 
 class TaskPriority(str, Enum):
@@ -99,6 +99,48 @@ class ScheduleBlockOut(BaseModel):
     start_time: datetime
     end_time: datetime
     type: ScheduleBlockType
+    all_day: bool = False
+    source: str | None = None
+    google_event_id: str | None = None
+    google_html_link: str | None = None
+
+    @field_serializer("start_time", "end_time")
+    def serialize_datetime_utc(self, value: datetime) -> str:
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        else:
+            value = value.astimezone(timezone.utc)
+        return value.isoformat().replace("+00:00", "Z")
+
+
+class ScheduleBlockUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    priority: TaskPriority | None = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+
+
+class ScheduleBlockRescheduleRequest(BaseModel):
+    start_time: datetime
+    end_time: datetime
+
+
+class DeleteResponse(BaseModel):
+    success: bool
+
+
+class ConflictResolveRequest(BaseModel):
+    year: int
+    month: int
+    day: int
+    priority_block_ids: list[str] = Field(default_factory=list)
+
+
+class ConflictResolveResponse(BaseModel):
+    success: bool
+    moved_count: int
+    moved: list[ScheduleBlockOut] = Field(default_factory=list)
+    unresolved: list[str] = Field(default_factory=list)
 
 
 class DiagnosticsLogRequest(BaseModel):

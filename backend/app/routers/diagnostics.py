@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends
 
+from app.core.datetime_utils import ensure_aware, local_date_key
 from app.db.mongo import mongo
 from app.models.common import mongo_to_dict
 from app.models.schemas import (
@@ -50,7 +51,7 @@ async def log_interaction(payload: NotificationInteractionRequest, user_doc: dic
     document = {
         "user_id": user_doc["_id"],
         "timestamp": now_local,
-        "local_date": now_local.date(),
+        "local_date": local_date_key(now_local),
         "action_id": action_id,
         "action_label": payload.action_label,
         "prompt_text": payload.prompt_text,
@@ -135,8 +136,8 @@ async def get_today_reflections(user_doc: dict = Depends(get_current_user)):
 
     scheduled_minutes = 0
     async for block in schedule_cursor:
-        block_start = max(block.get("start_time"), awake_start)
-        block_end = min(block.get("end_time"), awake_end)
+        block_start = max(ensure_aware(block.get("start_time")), awake_start)
+        block_end = min(ensure_aware(block.get("end_time")), awake_end)
         if block_end > block_start:
             scheduled_minutes += int((block_end - block_start).total_seconds() // 60)
 
@@ -160,15 +161,22 @@ async def get_today_reflections(user_doc: dict = Depends(get_current_user)):
         status = str(task.get("status", ""))
 
         completed = status.lower() == "completed"
-        completed_before_deadline = completed and completed_at is not None and completed_at <= deadline
+        deadline_aware = ensure_aware(deadline) if deadline is not None else None
+        completed_at_aware = ensure_aware(completed_at) if completed_at is not None else None
+        completed_before_deadline = (
+            completed
+            and completed_at_aware is not None
+            and deadline_aware is not None
+            and completed_at_aware <= deadline_aware
+        )
 
-        if not completed_before_deadline and deadline is not None:
+        if not completed_before_deadline and deadline_aware is not None:
             completion_hint = await mongo.collection("notification_interactions").find_one(
                 {
                     "user_id": user_doc["_id"],
                     "action_id": "task_due",
                     "scheduled_task_label": task.get("title"),
-                    "timestamp": {"$lte": deadline},
+                    "timestamp": {"$lte": deadline_aware},
                 }
             )
             completed_before_deadline = completion_hint is not None
@@ -188,7 +196,7 @@ async def get_today_reflections(user_doc: dict = Depends(get_current_user)):
     )
 
     return {
-        "user_id": user_doc["_id"],
+        "user_id": str(user_doc["_id"]),
         "local_date": today_local,
         "tasks_due_count": tasks_due_count,
         "tasks_completed_before_deadline": tasks_completed_before_deadline,
@@ -225,11 +233,12 @@ async def _build_and_store_daily_analysis(*, user_doc: dict, target_date: date) 
     )
     entries = [mongo_to_dict(item) async for item in cursor]
 
-    report = summarize_day(user_id=user_doc["_id"], target_date=target_date, entries=entries)
+    report = summarize_day(user_id=str(user_doc["_id"]), target_date=target_date, entries=entries)
+    date_key = local_date_key(target_date)
 
     await mongo.collection("daily_time_analysis").update_one(
-        {"user_id": user_doc["_id"], "local_date": target_date},
-        {"$set": report},
+        {"user_id": user_doc["_id"], "local_date": date_key},
+        {"$set": {**report, "local_date": date_key}},
         upsert=True,
     )
     return report

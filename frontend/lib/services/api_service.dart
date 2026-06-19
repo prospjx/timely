@@ -5,6 +5,8 @@ import 'package:kairos/core/constants.dart';
 import 'package:kairos/models/brief.dart';
 import 'package:kairos/models/schedule_block.dart';
 import 'package:kairos/models/task.dart';
+import 'package:kairos/services/timezone_service.dart';
+import 'package:kairos/utils/schedule_conflicts.dart';
 
 final apiServiceProvider = Provider<ApiService>((ref) => ApiService());
 
@@ -17,10 +19,18 @@ class ApiService {
             receiveTimeout: const Duration(seconds: 20),
             headers: {
               'X-Firebase-Uid': AppConstants.defaultFirebaseUid,
-              'X-Timezone': AppConstants.defaultTimezone,
             },
           ),
-        );
+        ) {
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          options.headers['X-Timezone'] = TimezoneService.current;
+          handler.next(options);
+        },
+      ),
+    );
+  }
 
   final Dio _dio;
 
@@ -92,6 +102,79 @@ class ApiService {
     await _dio.post<void>('/schedule/reshuffle');
   }
 
+  Future<ConflictResolveResult> resolveDayConflicts({
+    required DateTime date,
+    required List<String> priorityBlockIds,
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/schedule/resolve-conflicts',
+      data: {
+        'year': date.year,
+        'month': date.month,
+        'day': date.day,
+        'priority_block_ids': priorityBlockIds,
+      },
+    );
+    final data = response.data ?? <String, dynamic>{};
+    return ConflictResolveResult(
+      movedCount: (data['moved_count'] as num?)?.toInt() ?? 0,
+      unresolved: (data['unresolved'] as List<dynamic>? ?? const [])
+          .map((item) => item.toString())
+          .toList(),
+    );
+  }
+
+  Future<ScheduleBlock> updateScheduleBlock({
+    required String blockId,
+    String? title,
+    String? priority,
+    DateTime? startTime,
+    DateTime? endTime,
+  }) async {
+    final payload = <String, dynamic>{};
+    if (title != null) {
+      payload['title'] = title;
+    }
+    if (priority != null) {
+      payload['priority'] = priority;
+    }
+    if (startTime != null) {
+      payload['start_time'] = startTime.toUtc().toIso8601String();
+    }
+    if (endTime != null) {
+      payload['end_time'] = endTime.toUtc().toIso8601String();
+    }
+
+    final response = await _dio.patch<Map<String, dynamic>>(
+      '/schedule/blocks/$blockId',
+      data: payload,
+    );
+    return ScheduleBlock.fromJson(response.data ?? <String, dynamic>{});
+  }
+
+  Future<ScheduleBlock> rescheduleBlock({
+    required String blockId,
+    required DateTime startTime,
+    required DateTime endTime,
+  }) {
+    return updateScheduleBlock(
+      blockId: blockId,
+      startTime: startTime,
+      endTime: endTime,
+    );
+  }
+
+  Future<void> deleteScheduleBlock(String blockId) async {
+    await _dio.delete<void>('/schedule/blocks/$blockId');
+  }
+
+  Future<void> completeTask(String taskId, {bool completed = true}) async {
+    await _dio.post<void>(
+      '/tasks/$taskId/complete',
+      data: {'completed': completed},
+    );
+  }
+
   Future<void> submitDiagnosticResult(String type, int score) async {
     await _dio.post<void>(
       '/diagnostics/log',
@@ -124,12 +207,8 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getTodayTimeAnalysis() async {
-    try {
-      final response = await _dio.get<Map<String, dynamic>>('/diagnostics/analysis/today');
-      return response.data ?? <String, dynamic>{};
-    } on DioException {
-      return <String, dynamic>{};
-    }
+    final response = await _dio.get<Map<String, dynamic>>('/diagnostics/analysis/today');
+    return response.data ?? <String, dynamic>{};
   }
 
   Future<Map<String, dynamic>> pushActivityPrompt() async {
@@ -142,12 +221,8 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getTodayReflections() async {
-    try {
-      final response = await _dio.get<Map<String, dynamic>>('/diagnostics/reflections/today');
-      return response.data ?? <String, dynamic>{};
-    } on DioException {
-      return <String, dynamic>{};
-    }
+    final response = await _dio.get<Map<String, dynamic>>('/diagnostics/reflections/today');
+    return response.data ?? <String, dynamic>{};
   }
 
   Future<Brief> triggerBrief() async {

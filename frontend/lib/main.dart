@@ -6,6 +6,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:kairos/core/routes.dart';
 import 'package:kairos/core/theme.dart';
 import 'package:kairos/firebase_options.dart';
+import 'package:kairos/services/timezone_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -24,6 +25,7 @@ Future<void> main() async {
 
   try {
     await dotenv.load(fileName: ".env");
+    await TimezoneService.initialize();
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );

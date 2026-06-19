@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:kairos/models/schedule_block.dart';
 import 'package:kairos/models/task.dart';
 
 class QuickAddSheet extends StatefulWidget {
@@ -8,10 +9,14 @@ class QuickAddSheet extends StatefulWidget {
     super.key,
     required this.onSubmit,
     this.initialDeadline,
+    this.initialBlock,
   });
 
   final Future<void> Function(TaskDraft) onSubmit;
   final DateTime? initialDeadline;
+  final ScheduleBlock? initialBlock;
+
+  bool get isEditMode => initialBlock != null;
 
   @override
   State<QuickAddSheet> createState() => _QuickAddSheetState();
@@ -68,7 +73,29 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
   @override
   void initState() {
     super.initState();
+    final block = widget.initialBlock;
+    if (block != null) {
+      _titleController.text = block.title;
+      _scheduledAt = block.startTime;
+      _durationController.text = block.duration.inMinutes.toString();
+      _priority = _priorityFromString(block.priority);
+      _timingType = block.type.toLowerCase().contains('meeting')
+          ? TaskTimingType.event
+          : TaskTimingType.deadline;
+      return;
+    }
     _scheduledAt = _defaultDeadlineFor(widget.initialDeadline);
+  }
+
+  PriorityCode _priorityFromString(String? value) {
+    switch ((value ?? 'medium').toLowerCase()) {
+      case 'high':
+        return PriorityCode.a;
+      case 'low':
+        return PriorityCode.c;
+      default:
+        return PriorityCode.b;
+    }
   }
 
   @override
@@ -107,7 +134,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
         ),
       );
       if (mounted) {
-        Navigator.of(context).pop();
+        Navigator.of(context).pop(true);
       }
     } catch (error) {
       if (!mounted) {
@@ -169,7 +196,10 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Add Event or Deadline', style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            widget.isEditMode ? 'Edit Event' : 'Add Event or Deadline',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: _titleController,
@@ -214,15 +244,17 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
               ),
             ],
             selected: <TaskTimingType>{_timingType},
-            onSelectionChanged: (selection) {
-              if (selection.isEmpty) {
-                return;
-              }
-              setState(() {
-                _timingType = selection.first;
-                _errorMessage = null;
-              });
-            },
+            onSelectionChanged: widget.isEditMode
+                ? null
+                : (selection) {
+                    if (selection.isEmpty) {
+                      return;
+                    }
+                    setState(() {
+                      _timingType = selection.first;
+                      _errorMessage = null;
+                    });
+                  },
           ),
           const SizedBox(height: 12),
           TextField(
@@ -264,7 +296,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
                       width: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Add to Schedule'),
+                  : Text(widget.isEditMode ? 'Save changes' : 'Add to Schedule'),
             ),
           ),
         ],

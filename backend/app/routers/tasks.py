@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.core.datetime_utils import ensure_aware
 from app.db.mongo import mongo
 from app.models.common import mongo_to_dict
 from app.models.schemas import (
@@ -34,6 +35,9 @@ async def _persist_task_and_block(user_doc: dict, task_document: dict) -> dict:
         block_document = await scheduling_engine.schedule_task(user_doc, task_document)
         block_document["title"] = task_document["title"]
         block_document["priority"] = task_document["priority"]
+        zone = ZoneInfo(user_doc.get("timezone", "UTC"))
+        block_document["start_time"] = ensure_aware(block_document["start_time"], assume_tz=zone)
+        block_document["end_time"] = ensure_aware(block_document["end_time"], assume_tz=zone)
     except ValueError as exc:
         await tasks.update_one(
             {"_id": task_document["_id"]},
@@ -116,6 +120,21 @@ async def complete_task(task_id: str, payload: TaskCompleteRequest, user_doc: di
         update["completed_at"] = datetime.now(ZoneInfo(user_doc.get("timezone", "UTC")))
 
     await tasks.update_one({"_id": task_doc["_id"]}, {"$set": update})
+
+    schedule_blocks = mongo.collection("schedule_blocks")
+    if payload.completed:
+        await schedule_blocks.delete_many({"user_id": user_doc["_id"], "task_id": task_doc["_id"]})
+    else:
+        existing = await schedule_blocks.find_one({"user_id": user_doc["_id"], "task_id": task_doc["_id"]})
+        if existing is None:
+            try:
+                block_document = await scheduling_engine.schedule_task(user_doc, task_doc)
+                block_document["title"] = task_doc["title"]
+                block_document["priority"] = task_doc["priority"]
+                await schedule_blocks.insert_one(block_document)
+            except ValueError:
+                pass
+
     return {"success": True}
 
 

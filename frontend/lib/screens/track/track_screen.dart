@@ -98,12 +98,39 @@ class _TrackScreenState extends ConsumerState<TrackScreen> {
           FutureBuilder<Map<String, dynamic>>(
             future: _analysisFuture,
             builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              if (snapshot.hasError) {
+                return Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF3A1A1A),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Text(
+                        'Could not load today\'s analysis. Check that the backend is running, then try again.',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: _refreshAnalysis,
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                );
+              }
+
               final data = snapshot.data;
               return Column(
                 children: [
                   _ScoreCard(
-                    score: (data?['focus_score'] as num?)?.toInt() ?? 78,
-                    isMock: data == null,
+                    score: (data?['focus_score'] as num?)?.toInt() ?? 0,
+                    hasData: data != null && data.isNotEmpty,
                   ),
                   const SizedBox(height: 14),
                   _ReportCard(data: data),
@@ -162,10 +189,10 @@ class _ModeExplanationCard extends StatelessWidget {
 }
 
 class _ScoreCard extends StatelessWidget {
-  const _ScoreCard({required this.score, required this.isMock});
+  const _ScoreCard({required this.score, required this.hasData});
 
   final int score;
-  final bool isMock;
+  final bool hasData;
 
   @override
   Widget build(BuildContext context) {
@@ -200,11 +227,15 @@ class _ScoreCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isMock ? 'Mock Time Management Score' : 'Today\'s Time Management Score',
+                  hasData ? 'Today\'s Time Management Score' : 'No analysis yet',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 4),
-                Text('$score/100 - ${score >= 75 ? 'Good momentum' : 'Needs recovery focus'}, with room to reduce context switching.'),
+                Text(
+                  hasData
+                      ? '$score/100 - ${score >= 75 ? 'Good momentum' : 'Needs recovery focus'}, with room to reduce context switching.'
+                      : 'Respond to activity prompts to build your first score.',
+                ),
               ],
             ),
           ),
@@ -231,18 +262,18 @@ class _ReportCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            data == null ? 'Mock End-of-Day Report' : 'Today\'s End-of-Day Trend',
+            data == null || data!.isEmpty ? 'Today\'s End-of-Day Trend' : 'Today\'s End-of-Day Trend',
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 10),
-          Text('Total interactions: ${data?['total_interactions'] ?? 8}'),
-          Text('Completions: ${data?['completion_count'] ?? 4}'),
-          Text('Snoozes: ${data?['snooze_count'] ?? 2}'),
-          Text('Distractions: ${data?['distraction_count'] ?? 2}'),
+          Text('Total interactions: ${data?['total_interactions'] ?? 0}'),
+          Text('Completions: ${data?['completion_count'] ?? 0}'),
+          Text('Snoozes: ${data?['snooze_count'] ?? 0}'),
+          Text('Distractions: ${data?['distraction_count'] ?? 0}'),
           const SizedBox(height: 10),
           Text(
             data?['summary'] as String? ??
-                'Recommendation: Batch similar tasks and protect one 90-minute deep-work block.',
+                'No interaction data yet. Start a diagnostic to begin tracking.',
           ),
         ],
       ),

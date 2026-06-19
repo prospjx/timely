@@ -47,17 +47,6 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
     return shuffled.first;
   }
 
-  ({double completionRate, double restRate}) _fakeRates(DateTime now) {
-    final daySeed = now.year * 10000 + now.month * 100 + now.day;
-    final random = Random(daySeed ^ 0x5A17);
-    final completionRate = 0.58 + random.nextDouble() * 0.34;
-    final restRate = 0.22 + random.nextDouble() * 0.56;
-    return (
-      completionRate: double.parse(completionRate.clamp(0.0, 1.0).toStringAsFixed(2)),
-      restRate: double.parse(restRate.clamp(0.0, 1.0).toStringAsFixed(2)),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -78,13 +67,29 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(20),
-                child: Text('Failed to load reflections: ${snapshot.error}'),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Could not load reflections. Check that the backend is running, then try again.',
+                      style: theme.textTheme.bodyMedium,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: _refresh,
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
               ),
             );
           }
 
           final data = snapshot.data ?? <String, dynamic>{};
-          final fakeRates = _fakeRates(DateTime.now());
+          final completionRate =
+              (data['completion_rate_before_deadline'] as num?)?.toDouble() ?? 0.0;
+          final restRate = (data['rest_rate'] as num?)?.toDouble() ?? 0.0;
           final completed = (data['tasks_completed_before_deadline'] as num?)?.toInt() ?? 0;
           final due = (data['tasks_due_count'] as num?)?.toInt() ?? 0;
           final free = (data['free_minutes'] as num?)?.toInt() ?? 0;
@@ -114,14 +119,14 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
               const SizedBox(height: 12),
               _MetricCard(
                 title: 'Completion Rate (Before Deadline)',
-                value: '${(fakeRates.completionRate * 100).toStringAsFixed(0)}%',
+                value: '${(completionRate * 100).toStringAsFixed(0)}%',
                 subtitle: '$completed of $due due tasks completed before deadline.',
                 color: const Color(0xFF123D2E),
               ),
               const SizedBox(height: 12),
               _MetricCard(
                 title: 'Rest Rate (Free Time in Day)',
-                value: '${(fakeRates.restRate * 100).toStringAsFixed(0)}%',
+                value: '${(restRate * 100).toStringAsFixed(0)}%',
                 subtitle: '$free free minutes out of $available awake minutes.',
                 color: const Color(0xFF1D2E4B),
               ),

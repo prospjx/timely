@@ -8,6 +8,7 @@ class MonthCalendarView extends StatefulWidget {
     this.focusedDate,
     required this.selectedDate,
     required this.blocks,
+    this.conflictDates = const {},
     required this.onDateSelected,
     required this.onMonthChanged,
   });
@@ -15,6 +16,7 @@ class MonthCalendarView extends StatefulWidget {
   final DateTime? focusedDate;
   final DateTime selectedDate;
   final List<ScheduleBlock> blocks;
+  final Set<DateTime> conflictDates;
   final ValueChanged<DateTime> onDateSelected;
   final ValueChanged<DateTime> onMonthChanged;
 
@@ -111,10 +113,13 @@ class _MonthCalendarViewState extends State<MonthCalendarView> {
               final isSelected = date.year == widget.selectedDate.year &&
                   date.month == widget.selectedDate.month &&
                   date.day == widget.selectedDate.day;
-              final eventCount = widget.blocks.where((block) {
-                final start = block.startTime;
-                return start.year == date.year && start.month == date.month && start.day == date.day;
-              }).length;
+              final eventCount = widget.blocks.where((block) => block.occursOnDate(date)).length;
+              final hasConflict = widget.conflictDates.any(
+                (conflictDate) =>
+                    conflictDate.year == date.year &&
+                    conflictDate.month == date.month &&
+                    conflictDate.day == date.day,
+              );
 
               return InkWell(
                 onTap: () => widget.onDateSelected(date),
@@ -146,18 +151,30 @@ class _MonthCalendarViewState extends State<MonthCalendarView> {
                           padding: const EdgeInsets.only(top: 2),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
-                            children: List.generate(
-                              eventCount > 3 ? 3 : eventCount,
-                              (_) => Container(
-                                margin: const EdgeInsets.symmetric(horizontal: 1),
-                                width: 4,
-                                height: 4,
-                                decoration: const BoxDecoration(
-                                  color: Colors.white,
-                                  shape: BoxShape.circle,
+                            children: [
+                              if (hasConflict)
+                                Container(
+                                  margin: const EdgeInsets.only(right: 2),
+                                  width: 5,
+                                  height: 5,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFFF6B6B),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                              ...List.generate(
+                                eventCount > 3 ? 3 : eventCount,
+                                (_) => Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: 1),
+                                  width: 4,
+                                  height: 4,
+                                  decoration: BoxDecoration(
+                                    color: hasConflict ? Colors.white70 : Colors.white,
+                                    shape: BoxShape.circle,
+                                  ),
                                 ),
                               ),
-                            ),
+                            ],
                           ),
                         ),
                     ],

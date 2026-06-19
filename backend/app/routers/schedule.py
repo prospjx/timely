@@ -5,19 +5,30 @@ from datetime import datetime, timedelta
 import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends
+from bson import ObjectId
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.db.mongo import mongo
 from app.models.common import mongo_to_dict
 from app.models.schemas import (
     CalendarImportRequest,
     CalendarImportResponse,
+    ConflictResolveRequest,
+    ConflictResolveResponse,
+    DeleteResponse,
     ReshuffleResponse,
     ScheduleBlockOut,
+    ScheduleBlockUpdateRequest,
 )
 from app.routers.deps import get_current_user
+from app.services import google_calendar_service
 from app.services.notification_service import send_task_moved_notification
-from app.services.scheduling_engine import reshuffle_incomplete_deadlines
+from app.services.scheduling_engine import (
+    auto_resolve_day_conflicts,
+    delete_schedule_block,
+    reshuffle_incomplete_deadlines,
+    update_schedule_block,
+)
 
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
@@ -299,3 +310,136 @@ async def reshuffle_overdue_deadlines(user_doc: dict = Depends(get_current_user)
         )
 
     return {"success": True, "moved_count": len(moved)}
+
+
+@router.patch("/blocks/{block_id}", response_model=ScheduleBlockOut)
+async def update_schedule_block_endpoint(
+    block_id: str,
+    payload: ScheduleBlockUpdateRequest,
+    user_doc: dict = Depends(get_current_user),
+):
+    if not any([payload.title, payload.priority, payload.start_time, payload.end_time]):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="At least one field must be provided",
+        )
+
+    try:
+        object_id = ObjectId(block_id)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule block not found") from exc
+
+    blocks = mongo.collection("schedule_blocks")
+    block = await blocks.find_one({"_id": object_id, "user_id": user_doc["_id"]})
+    if block is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule block not found")
+
+    new_title = payload.title if payload.title is not None else (block.get("title") or "Event")
+    new_start = payload.start_time if payload.start_time is not None else block["start_time"]
+    new_end = payload.end_time if payload.end_time is not None else block["end_time"]
+
+    if block.get("source") == "calendar_sync":
+        google_event_id = block.get("google_event_id")
+        if not google_event_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This Google Calendar event cannot be edited because it has no linked event id",
+            )
+        user_key = str(user_doc.get("firebase_uid") or user_doc.get("_id"))
+        try:
+            updated_google = await google_calendar_service.update_calendar_event(
+                user_key,
+                google_event_id,
+                title=new_title,
+                start_time=new_start,
+                end_time=new_end,
+                user_timezone=str(user_doc.get("timezone") or "UTC"),
+                all_day=bool(block.get("all_day")),
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+        await blocks.update_one(
+            {"_id": object_id},
+            {
+                "$set": {
+                    "title": updated_google.get("summary") or new_title,
+                    "start_time": new_start,
+                    "end_time": new_end,
+                    "google_html_link": updated_google.get("htmlLink") or block.get("google_html_link"),
+                }
+            },
+        )
+        updated = await blocks.find_one({"_id": object_id})
+    else:
+        try:
+            updated = await update_schedule_block(
+                user_doc,
+                object_id,
+                title=payload.title,
+                priority=payload.priority.value if payload.priority is not None else None,
+                start_time=payload.start_time,
+                end_time=payload.end_time,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    enriched = await _attach_task_titles([updated])
+    return mongo_to_dict(enriched[0])
+
+
+@router.delete("/blocks/{block_id}", response_model=DeleteResponse)
+async def delete_schedule_block_endpoint(
+    block_id: str,
+    user_doc: dict = Depends(get_current_user),
+):
+    try:
+        object_id = ObjectId(block_id)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule block not found") from exc
+
+    blocks = mongo.collection("schedule_blocks")
+    block = await blocks.find_one({"_id": object_id, "user_id": user_doc["_id"]})
+    if block is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule block not found")
+
+    if block.get("source") == "calendar_sync":
+        google_event_id = block.get("google_event_id")
+        if not google_event_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This Google Calendar event cannot be deleted because it has no linked event id",
+            )
+        user_key = str(user_doc.get("firebase_uid") or user_doc.get("_id"))
+        try:
+            await google_calendar_service.delete_calendar_event(user_key, google_event_id)
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    try:
+        await delete_schedule_block(user_doc, object_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    return {"success": True}
+
+
+@router.post("/resolve-conflicts", response_model=ConflictResolveResponse)
+async def resolve_schedule_conflicts(
+    payload: ConflictResolveRequest,
+    user_doc: dict = Depends(get_current_user),
+):
+    moved, unresolved = await auto_resolve_day_conflicts(
+        user_doc,
+        year=payload.year,
+        month=payload.month,
+        day=payload.day,
+        priority_block_ids=payload.priority_block_ids,
+    )
+    enriched = await _attach_task_titles(moved)
+    return {
+        "success": True,
+        "moved_count": len(moved),
+        "moved": [mongo_to_dict(item) for item in enriched],
+        "unresolved": unresolved,
+    }
