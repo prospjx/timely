@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:kairos/providers/schedule_provider.dart';
+import 'package:kairos/screens/account/account_screen.dart';
 import 'package:kairos/screens/brief/daily_brief_modal.dart';
 import 'package:kairos/screens/dashboard/widgets/month_calendar_view.dart';
 import 'package:kairos/screens/dashboard/widgets/timeline_view.dart';
@@ -36,6 +37,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       appBar: AppBar(
         automaticallyImplyLeading: false,
         title: const Text('Timely'),
+        actions: [
+          IconButton(
+            onPressed: () {
+              Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AccountScreen()));
+            },
+            icon: const Icon(Icons.account_circle_outlined),
+            tooltip: 'Account',
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -115,7 +125,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       onSubmit: (draft) async {
                         await ref.read(scheduleProvider.notifier).submitTask(draft);
                         setState(() {
-                          _selectedDate = draft.deadline;
+                          _selectedDate = draft.scheduledAt;
                         });
                       },
                     ),

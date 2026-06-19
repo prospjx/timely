@@ -16,6 +16,23 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
     gemini_model: str = Field(default="gemini-1.5-flash", alias="GEMINI_MODEL")
 
+    # Google OAuth / Calendar
+    google_oauth_client_id: str | None = Field(default=None, alias="GOOGLE_OAUTH_CLIENT_ID")
+    google_oauth_client_secret: str | None = Field(default=None, alias="GOOGLE_OAUTH_CLIENT_SECRET")
+    google_oauth_redirect_uri: str | None = Field(
+        default="http://localhost:8000/api/v1/google/callback",
+        alias="GOOGLE_OAUTH_REDIRECT_URI",
+    )
+    google_oauth_scopes: list[str] = Field(
+        default_factory=lambda: [
+            "https://www.googleapis.com/auth/calendar",
+            "openid",
+            "email",
+            "profile",
+        ],
+        alias="GOOGLE_OAUTH_SCOPES",
+    )
+
     elevenlabs_api_key: str | None = Field(default=None, alias="ELEVENLABS_API_KEY")
     elevenlabs_voice_id: str | None = Field(default=None, alias="ELEVENLABS_VOICE_ID")
     audio_public_base_url: str | None = Field(default=None, alias="AUDIO_PUBLIC_BASE_URL")

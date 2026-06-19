@@ -9,8 +9,15 @@ from fastapi import APIRouter, Depends
 
 from app.db.mongo import mongo
 from app.models.common import mongo_to_dict
-from app.models.schemas import ScheduleBlockOut
+from app.models.schemas import (
+    CalendarImportRequest,
+    CalendarImportResponse,
+    ReshuffleResponse,
+    ScheduleBlockOut,
+)
 from app.routers.deps import get_current_user
+from app.services.notification_service import send_task_moved_notification
+from app.services.scheduling_engine import reshuffle_incomplete_deadlines
 
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
@@ -241,3 +248,54 @@ async def seed_demo_schedule(
         await schedule_collection.insert_many(unique_blocks)
 
     return {"success": True, "inserted": len(unique_blocks), "year": year, "month": month}
+
+
+@router.post("/calendar/import", response_model=CalendarImportResponse)
+async def import_calendar_events(payload: CalendarImportRequest, user_doc: dict = Depends(get_current_user)):
+    schedule_collection = mongo.collection("schedule_blocks")
+    inserted = 0
+
+    for event in payload.events:
+        if event.end_time <= event.start_time:
+            continue
+
+        conflict = await schedule_collection.find_one(
+            {
+                "user_id": user_doc["_id"],
+                "start_time": {"$lt": event.end_time},
+                "end_time": {"$gt": event.start_time},
+                "source": "calendar_sync",
+                "title": event.title,
+            }
+        )
+        if conflict is not None:
+            continue
+
+        await schedule_collection.insert_one(
+            {
+                "user_id": user_doc["_id"],
+                "title": event.title,
+                "priority": "Medium",
+                "start_time": event.start_time,
+                "end_time": event.end_time,
+                "type": "Meeting",
+                "source": "calendar_sync",
+            }
+        )
+        inserted += 1
+
+    return {"success": True, "imported": inserted}
+
+
+@router.post("/reshuffle", response_model=ReshuffleResponse)
+async def reshuffle_overdue_deadlines(user_doc: dict = Depends(get_current_user)):
+    moved = await reshuffle_incomplete_deadlines(user_doc)
+
+    for item in moved:
+        await send_task_moved_notification(
+            user_doc,
+            task_title=item["title"],
+            new_start_time_iso=item["new_start_time"].isoformat(),
+        )
+
+    return {"success": True, "moved_count": len(moved)}

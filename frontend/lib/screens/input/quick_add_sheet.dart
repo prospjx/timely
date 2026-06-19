@@ -19,7 +19,8 @@ class QuickAddSheet extends StatefulWidget {
 
 class _QuickAddSheetState extends State<QuickAddSheet> {
   final TextEditingController _titleController = TextEditingController();
-  late DateTime _deadline;
+  late DateTime _scheduledAt;
+  final TextEditingController _durationController = TextEditingController(text: '60');
   PriorityCode _priority = PriorityCode.b;
   TaskTimingType _timingType = TaskTimingType.deadline;
   bool _isSubmitting = false;
@@ -67,18 +68,27 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
   @override
   void initState() {
     super.initState();
-    _deadline = _defaultDeadlineFor(widget.initialDeadline);
+    _scheduledAt = _defaultDeadlineFor(widget.initialDeadline);
   }
 
   @override
   void dispose() {
     _titleController.dispose();
+    _durationController.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     final title = _titleController.text.trim();
+    final durationMinutes = int.tryParse(_durationController.text.trim()) ?? 60;
     if (title.isEmpty || _isSubmitting) {
+      return;
+    }
+
+    if (durationMinutes < 15) {
+      setState(() {
+        _errorMessage = 'Duration must be at least 15 minutes.';
+      });
       return;
     }
 
@@ -91,8 +101,9 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
         TaskDraft(
           title: title,
           priority: _priority,
-          deadline: _deadline,
+          scheduledAt: _scheduledAt,
           timingType: _timingType,
+          durationMinutes: durationMinutes,
         ),
       );
       if (mounted) {
@@ -121,7 +132,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
   Future<void> _pickDeadline() async {
     final date = await showDatePicker(
       context: context,
-      initialDate: _deadline,
+      initialDate: _scheduledAt,
       firstDate: DateTime.now().subtract(const Duration(days: 1)),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
@@ -131,16 +142,16 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
 
     final time = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(_deadline),
+      initialTime: TimeOfDay.fromDateTime(_scheduledAt),
     );
 
     setState(() {
-      _deadline = DateTime(
+      _scheduledAt = DateTime(
         date.year,
         date.month,
         date.day,
-        time?.hour ?? _deadline.hour,
-        time?.minute ?? _deadline.minute,
+        time?.hour ?? _scheduledAt.hour,
+        time?.minute ?? _scheduledAt.minute,
       );
     });
   }
@@ -158,7 +169,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Quick Add Task', style: Theme.of(context).textTheme.titleLarge),
+          Text('Add Event or Deadline', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
           TextField(
             controller: _titleController,
@@ -214,15 +225,25 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
             },
           ),
           const SizedBox(height: 12),
+          TextField(
+            controller: _durationController,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              labelText: _timingType == TaskTimingType.event
+                  ? 'Event Duration (minutes)'
+                  : 'Estimated Duration (minutes)',
+            ),
+          ),
+          const SizedBox(height: 12),
           InkWell(
             onTap: _pickDeadline,
             borderRadius: BorderRadius.circular(14),
             child: InputDecorator(
               decoration: InputDecoration(
-                labelText: _timingType == TaskTimingType.event ? 'Event Date' : 'Deadline',
+                labelText: _timingType == TaskTimingType.event ? 'Event Start Time' : 'Deadline Time',
                 suffixIcon: Icon(Icons.calendar_today),
               ),
-              child: Text(DateFormat('EEE, MMM d • HH:mm').format(_deadline)),
+              child: Text(DateFormat('EEE, MMM d • HH:mm').format(_scheduledAt)),
             ),
           ),
           const SizedBox(height: 12),

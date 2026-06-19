@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.db.mongo import mongo
-from app.routers import brief, diagnostics, schedule, tasks
+from app.routers import brief, diagnostics, schedule, tasks, google_auth
 from app.scheduler.jobs import start_scheduler, stop_scheduler
 
 
@@ -31,6 +31,7 @@ app.include_router(tasks.router, prefix=settings.api_prefix)
 app.include_router(schedule.router, prefix=settings.api_prefix)
 app.include_router(diagnostics.router, prefix=settings.api_prefix)
 app.include_router(brief.router, prefix=settings.api_prefix)
+app.include_router(google_auth.router, prefix=settings.api_prefix)
 
 
 audio_dir = Path(__file__).resolve().parents[1] / "generated_audio"

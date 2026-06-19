@@ -131,11 +131,9 @@ class ScheduleNotifier extends AsyncNotifier<List<ScheduleBlock>> {
   }
 
   ScheduleBlock _localBlockFromDraft(TaskDraft draft) {
-    final duration = draft.timingType == TaskTimingType.event
-        ? const Duration(hours: 1)
-        : const Duration(minutes: 90);
+    final duration = Duration(minutes: draft.durationMinutes);
 
-    final start = draft.deadline;
+    final start = draft.scheduledAt;
     final end = start.add(duration);
 
     return ScheduleBlock(

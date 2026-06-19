@@ -5,4 +5,8 @@ class AppConstants {
   );
   static const String defaultFirebaseUid = 'demo-user';
   static const String defaultTimezone = 'UTC';
+  static const String googleServerClientId = String.fromEnvironment(
+    'GOOGLE_SERVER_CLIENT_ID',
+    defaultValue: '920522963940-ni6do3lc2oqtscrlo6f1tqaidgatsn74.apps.googleusercontent.com',
+  );
 }

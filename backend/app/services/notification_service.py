@@ -87,3 +87,23 @@ async def send_activity_probe(
     message = messaging.Message(token=token, data=payload)
     messaging.send(message)
     return True
+
+
+async def send_task_moved_notification(user_doc: dict, task_title: str, new_start_time_iso: str) -> bool:
+    token = user_doc.get("fcm_token")
+    if not token:
+        return False
+
+    if not _ensure_firebase_initialized():
+        return False
+
+    body = f"Moved '{task_title}' to {new_start_time_iso}."
+    notification = messaging.Notification(title="Schedule updated", body=body)
+    data_payload = {
+        "type": "task_moved",
+        "task_title": task_title,
+        "new_start_time": new_start_time_iso,
+    }
+    message = messaging.Message(token=token, notification=notification, data=data_payload)
+    messaging.send(message)
+    return True

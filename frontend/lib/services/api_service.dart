@@ -65,8 +65,31 @@ class ApiService {
     return ScheduleBlock.fromJson(response.data ?? <String, dynamic>{});
   }
 
+  Future<ScheduleBlock> createEvent(TaskDraft draft) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/tasks/events',
+      data: draft.toEventJson(),
+    );
+    return ScheduleBlock.fromJson(response.data ?? <String, dynamic>{});
+  }
+
+  Future<ScheduleBlock> createDeadline(TaskDraft draft) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/tasks/deadlines',
+      data: draft.toDeadlineJson(),
+    );
+    return ScheduleBlock.fromJson(response.data ?? <String, dynamic>{});
+  }
+
   Future<ScheduleBlock> submitTaskDraft(TaskDraft draft) {
-    return submitRawTask(draft.toRawText());
+    if (draft.timingType == TaskTimingType.event) {
+      return createEvent(draft);
+    }
+    return createDeadline(draft);
+  }
+
+  Future<void> triggerReshuffle() async {
+    await _dio.post<void>('/schedule/reshuffle');
   }
 
   Future<void> submitDiagnosticResult(String type, int score) async {
@@ -139,5 +162,54 @@ class ApiService {
       ),
     );
     return Brief.fromJson(response.data ?? <String, dynamic>{});
+  }
+
+  // Google integration
+  Future<Map<String, dynamic>> getGoogleAccount() async {
+    final response = await _dio.get<Map<String, dynamic>>('/google/accounts');
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> getGoogleAuthUrl() async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/google/auth-url',
+      queryParameters: {'user_id': AppConstants.defaultFirebaseUid},
+    );
+    return response.data ?? <String, dynamic>{};
+  }
+
+  Future<void> connectGoogle({required String serverAuthCode}) async {
+    await _dio.post<void>(
+      '/google/connect',
+      data: {
+        'server_auth_code': serverAuthCode,
+        'user_id': AppConstants.defaultFirebaseUid,
+      },
+    );
+  }
+
+  Future<int> syncGoogleCalendar() async {
+    final response = await _dio.post<Map<String, dynamic>>('/google/sync');
+    final data = response.data ?? <String, dynamic>{};
+    return (data['imported'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<void> completeGoogleOAuth({
+    required String callbackUrl,
+    required String userId,
+  }) async {
+    await _dio.post<void>(
+      '/google/complete',
+      data: {
+        'callback_url': callbackUrl,
+        'user_id': userId,
+      },
+    );
+  }
+
+  Future<bool> disconnectGoogle() async {
+    final response = await _dio.delete<Map<String, dynamic>>('/google/disconnect');
+    final data = response.data ?? <String, dynamic>{};
+    return data['success'] == true;
   }
 }

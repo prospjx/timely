@@ -46,6 +46,39 @@ class TaskProcessRequest(BaseModel):
     raw_text: str = Field(min_length=3)
 
 
+class EventCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    start_time: datetime
+    end_time: datetime
+    priority: TaskPriority = TaskPriority.medium
+
+
+class DeadlineCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    deadline: datetime
+    estimated_minutes: int = Field(default=60, ge=15, le=600)
+    priority: TaskPriority = TaskPriority.medium
+
+
+class TaskCompleteRequest(BaseModel):
+    completed: bool = True
+
+
+class CalendarEventIn(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    start_time: datetime
+    end_time: datetime
+
+
+class CalendarImportRequest(BaseModel):
+    events: list[CalendarEventIn] = Field(default_factory=list)
+
+
+class CalendarImportResponse(BaseModel):
+    success: bool
+    imported: int
+
+
 class TaskOut(BaseModel):
     id: str = Field(alias="_id")
     user_id: str
@@ -136,3 +169,8 @@ class BriefResponse(BaseModel):
     success: bool
     text: str
     audio_url: str | None = None
+
+
+class ReshuffleResponse(BaseModel):
+    success: bool
+    moved_count: int

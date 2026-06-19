@@ -10,6 +10,8 @@ from app.core.config import get_settings
 from app.db.mongo import mongo
 from app.services.brief_service import trigger_brief_for_user
 from app.services.diagnostics_analysis_service import local_day_bounds, summarize_day
+from app.services.notification_service import send_task_moved_notification
+from app.services.scheduling_engine import reshuffle_incomplete_deadlines
 
 
 scheduler = AsyncIOScheduler()
@@ -51,6 +53,19 @@ async def run_daily_time_analysis() -> None:
         )
 
 
+async def run_auto_reshuffle() -> None:
+    users = mongo.collection("users")
+
+    async for user_doc in users.find({}):
+        moved = await reshuffle_incomplete_deadlines(user_doc)
+        for item in moved:
+            await send_task_moved_notification(
+                user_doc,
+                task_title=item["title"],
+                new_start_time_iso=item["new_start_time"].isoformat(),
+            )
+
+
 def start_scheduler() -> None:
     settings = get_settings()
     if scheduler.running:
@@ -66,6 +81,13 @@ def start_scheduler() -> None:
         run_daily_time_analysis,
         CronTrigger(hour=settings.analysis_cron_hour_utc, minute=settings.analysis_cron_minute_utc),
         id="daily_time_analysis",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        run_auto_reshuffle,
+        "interval",
+        minutes=15,
+        id="auto_reshuffle",
         replace_existing=True,
     )
     scheduler.start()
