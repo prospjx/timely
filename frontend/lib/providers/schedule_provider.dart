@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:kairos/models/schedule_block.dart';
 import 'package:kairos/models/task.dart';
 import 'package:kairos/services/api_service.dart';
+import 'package:kairos/utils/calendar_math.dart';
 import 'package:kairos/utils/schedule_conflicts.dart';
 
 final scheduleProvider =
@@ -13,30 +14,65 @@ final scheduleProvider =
 
 class ScheduleNotifier extends AsyncNotifier<List<ScheduleBlock>> {
   DateTime _visibleMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  final Set<int> _loadedMonthKeys = <int>{};
 
   @override
-  Future<List<ScheduleBlock>> build() {
-    return _loadSchedule();
+  Future<List<ScheduleBlock>> build() async {
+    final month = CalendarMath.monthStart(_visibleMonth);
+    final blocks = await _fetchMonth(month);
+    _loadedMonthKeys.add(CalendarMath.monthKey(month));
+    return blocks;
   }
 
-  Future<List<ScheduleBlock>> _loadSchedule() async {
+  Future<List<ScheduleBlock>> _fetchMonth(DateTime month) async {
     final api = ref.read(apiServiceProvider);
-    final year = _visibleMonth.year;
-    final month = _visibleMonth.month;
-    return api.getMonthSchedule(year: year, month: month);
+    return api.getMonthSchedule(year: month.year, month: month.month);
+  }
+
+  bool _hasMonth(DateTime month) => _loadedMonthKeys.contains(CalendarMath.monthKey(month));
+
+  bool _serverBlockInMonth(ScheduleBlock block, DateTime month) {
+    if (block.isLocalOnly) {
+      return false;
+    }
+    final monthStart = CalendarMath.monthStart(month);
+    final monthEnd = DateTime(month.year, month.month + 1);
+    if (block.allDay) {
+      final blockStart = DateTime(block.startTime.year, block.startTime.month, block.startTime.day);
+      final blockEnd = DateTime(block.endTime.year, block.endTime.month, block.endTime.day);
+      return blockStart.isBefore(monthEnd) && !blockEnd.isBefore(monthStart);
+    }
+    return block.startTime.year == month.year && block.startTime.month == month.month;
   }
 
   Future<void> refreshSchedule() async {
     final localOnly = (state.valueOrNull ?? <ScheduleBlock>[])
         .where((block) => block.isLocalOnly)
         .toList();
-    state = const AsyncLoading();
-    final loaded = await AsyncValue.guard(_loadSchedule);
-    if (loaded case AsyncData<List<ScheduleBlock>>(value: final serverBlocks)) {
-      state = AsyncData(_mergeLocalBlocks(localOnly, serverBlocks));
+    final months = _loadedMonthKeys.isEmpty
+        ? <DateTime>[CalendarMath.monthStart(_visibleMonth)]
+        : _loadedMonthKeys
+            .map((key) => DateTime(key ~/ 100, key % 100))
+            .toList()
+          ..sort((a, b) => a.compareTo(b));
+
+    if (state.valueOrNull == null) {
+      state = const AsyncLoading();
+    }
+
+    _loadedMonthKeys.clear();
+    var merged = localOnly;
+    for (final month in months) {
+      final loaded = await AsyncValue.guard(() => _fetchMonth(month));
+      if (loaded case AsyncData<List<ScheduleBlock>>(value: final serverBlocks)) {
+        _loadedMonthKeys.add(CalendarMath.monthKey(month));
+        merged = _mergeLocalBlocks(merged, serverBlocks);
+        continue;
+      }
+      state = loaded;
       return;
     }
-    state = loaded;
+    state = AsyncData(merged);
   }
 
   List<ScheduleBlock> _mergeLocalBlocks(
@@ -148,8 +184,40 @@ class ScheduleNotifier extends AsyncNotifier<List<ScheduleBlock>> {
   }
 
   Future<void> loadMonth(DateTime monthDate) async {
-    _visibleMonth = DateTime(monthDate.year, monthDate.month);
-    await refreshSchedule();
+    final month = CalendarMath.monthStart(monthDate);
+    _visibleMonth = month;
+    if (_hasMonth(month)) {
+      return;
+    }
+    await _mergeMonth(month);
+  }
+
+  Future<void> loadMonthsForWeek(DateTime weekStart) async {
+    for (final month in CalendarMath.monthsToCoverWeek(weekStart)) {
+      await loadMonth(month);
+    }
+  }
+
+  Future<void> loadMonthIfNeeded(DateTime date) => loadMonth(date);
+
+  Future<void> _mergeMonth(DateTime month) async {
+    final kept = (state.valueOrNull ?? <ScheduleBlock>[])
+        .where((block) => block.isLocalOnly || !_serverBlockInMonth(block, month))
+        .toList();
+
+    if (state.valueOrNull == null) {
+      state = const AsyncLoading();
+    }
+
+    final loaded = await AsyncValue.guard(() => _fetchMonth(month));
+    if (loaded case AsyncData<List<ScheduleBlock>>(value: final serverBlocks)) {
+      _loadedMonthKeys.add(CalendarMath.monthKey(month));
+      final merged = [...kept, ...serverBlocks]
+        ..sort((a, b) => a.startTime.compareTo(b.startTime));
+      state = AsyncData(merged);
+      return;
+    }
+    state = loaded;
   }
 
   Future<ConflictResolveResult> resolveDayConflicts({

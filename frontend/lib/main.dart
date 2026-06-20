@@ -6,6 +6,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:kairos/core/routes.dart';
 import 'package:kairos/core/theme.dart';
 import 'package:kairos/firebase_options.dart';
+import 'package:kairos/providers/theme_provider.dart';
 import 'package:kairos/services/timezone_service.dart';
 
 @pragma('vm:entry-point')
@@ -37,15 +38,19 @@ Future<void> main() async {
   runApp(const ProviderScope(child: TimelyApp()));
 }
 
-class TimelyApp extends StatelessWidget {
+class TimelyApp extends ConsumerWidget {
   const TimelyApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+
     return MaterialApp(
       title: 'Timely',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.darkTheme(),
+      theme: AppTheme.lightTheme(),
+      darkTheme: AppTheme.darkTheme(),
+      themeMode: themeMode,
       onGenerateRoute: AppRoutes.onGenerateRoute,
       initialRoute: AppRoutes.splash,
     );

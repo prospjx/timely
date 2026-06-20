@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:kairos/core/app_spacing.dart';
+import 'package:kairos/core/timely_theme_extension.dart';
 import 'package:kairos/utils/schedule_conflicts.dart';
 
 class ConflictBanner extends StatelessWidget {
@@ -18,48 +20,50 @@ class ConflictBanner extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
+    final timely = context.timelyColors;
+    final theme = Theme.of(context);
     final totalEvents = groups.fold<int>(0, (sum, group) => sum + group.blocks.length);
     final allFixed = groups.every((group) => group.isFullyFixed);
     final subtitle = allFixed
         ? 'These Google Calendar events overlap. Edit one in Google Calendar.'
-        : 'Drag to prioritize, then auto-fix or reschedule Timely events.';
+        : "Let's make room — drag to prioritize, then auto-fix or reschedule.";
 
     return Material(
-      color: const Color(0xFF3A1A1A),
-      borderRadius: BorderRadius.circular(14),
+      color: timely.warningSurface,
+      borderRadius: BorderRadius.circular(AppSpacing.inputRadius),
       child: InkWell(
         onTap: onResolve,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(AppSpacing.inputRadius),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFFF6B6B).withValues(alpha: 0.55)),
+            borderRadius: BorderRadius.circular(AppSpacing.inputRadius),
+            border: Border.all(color: timely.conflictBorder.withValues(alpha: 0.55)),
           ),
           child: Row(
             children: [
-              const Icon(Icons.warning_amber_rounded, color: Color(0xFFFF8A80)),
+              Icon(Icons.event_available_outlined, color: timely.conflictIcon),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${groups.length} time conflict${groups.length == 1 ? '' : 's'} ($totalEvents events)',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            color: const Color(0xFFFFCDD2),
-                            fontWeight: FontWeight.w700,
-                          ),
+                      '${groups.length} time overlap${groups.length == 1 ? '' : 's'} ($totalEvents events)',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: timely.conflictBorder,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white70),
+                      style: theme.textTheme.bodySmall?.copyWith(color: timely.onSurfaceMuted),
                     ),
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right, color: Colors.white70),
+              Icon(Icons.chevron_right, color: timely.onSurfaceMuted),
             ],
           ),
         ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:kairos/screens/dashboard/dashboard_screen.dart';
 import 'package:kairos/screens/reflections/reflections_screen.dart';
 import 'package:kairos/screens/track/track_screen.dart';
+import 'package:kairos/services/haptic_service.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -29,6 +30,9 @@ class _AppShellState extends State<AppShell> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {
+          if (index != _selectedIndex) {
+            HapticService.selectionClick();
+          }
           setState(() {
             _selectedIndex = index;
           });

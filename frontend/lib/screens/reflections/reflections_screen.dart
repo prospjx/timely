@@ -2,7 +2,10 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:kairos/core/app_spacing.dart';
+import 'package:kairos/core/timely_theme_extension.dart';
 import 'package:kairos/services/api_service.dart';
+import 'package:kairos/widgets/zen_card.dart';
 
 class ReflectionsScreen extends ConsumerStatefulWidget {
   const ReflectionsScreen({super.key});
@@ -50,6 +53,7 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final timely = context.timelyColors;
 
     return Scaffold(
       appBar: AppBar(
@@ -66,7 +70,7 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
           if (snapshot.hasError) {
             return Center(
               child: Padding(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(AppSpacing.lg - 4),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -75,7 +79,7 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
                       style: theme.textTheme.bodyMedium,
                       textAlign: TextAlign.center,
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: AppSpacing.sm + 4),
                     TextButton(
                       onPressed: _refresh,
                       child: const Text('Retry'),
@@ -96,53 +100,46 @@ class _ReflectionsScreenState extends ConsumerState<ReflectionsScreen> {
           final available = (data['available_minutes'] as num?)?.toInt() ?? 0;
 
           return ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(AppSpacing.md),
             children: [
               Text('Today\'s Reflection Tips', style: theme.textTheme.titleLarge),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF111722),
-                  borderRadius: BorderRadius.circular(12),
-                ),
+              const SizedBox(height: AppSpacing.sm + 4),
+              ZenCard(
+                tint: timely.briefBubbleBackground,
                 child: Text(
                   _dailyTip,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontStyle: FontStyle.italic,
-                    height: 1.35,
+                    height: 1.5,
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: AppSpacing.lg - 4),
               Text('Today\'s Reflection Metrics', style: theme.textTheme.titleLarge),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.sm + 4),
               _MetricCard(
                 title: 'Completion Rate (Before Deadline)',
                 value: '${(completionRate * 100).toStringAsFixed(0)}%',
                 subtitle: '$completed of $due due tasks completed before deadline.',
-                color: const Color(0xFF123D2E),
+                tint: timely.secondary.withValues(alpha: 0.3),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.sm + 4),
               _MetricCard(
                 title: 'Rest Rate (Free Time in Day)',
                 value: '${(restRate * 100).toStringAsFixed(0)}%',
                 subtitle: '$free free minutes out of $available awake minutes.',
-                color: const Color(0xFF1D2E4B),
+                tint: timely.tertiary.withValues(alpha: 0.25),
               ),
-              const SizedBox(height: 14),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF111722),
-                  borderRadius: BorderRadius.circular(12),
-                ),
+              const SizedBox(height: AppSpacing.sm + 4),
+              ZenCard(
+                tint: timely.surfaceElevated,
                 child: Text(
                   (data['summary'] as String?) ??
                       'Once you complete a full day of tracking, reflections will get richer.',
+                  style: theme.textTheme.bodyMedium?.copyWith(color: timely.onSurfaceMuted),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.sm + 4),
               TextButton(
                 onPressed: _refresh,
                 child: const Text('Refresh Metrics'),
@@ -160,22 +157,20 @@ class _MetricCard extends StatelessWidget {
     required this.title,
     required this.value,
     required this.subtitle,
-    required this.color,
+    required this.tint,
   });
 
   final String title;
   final String value;
   final String subtitle;
-  final Color color;
+  final Color tint;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(12),
-      ),
+    final timely = context.timelyColors;
+
+    return ZenCard(
+      tint: tint,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -186,7 +181,10 @@ class _MetricCard extends StatelessWidget {
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 6),
-          Text(subtitle),
+          Text(
+            subtitle,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: timely.onSurfaceMuted),
+          ),
         ],
       ),
     );

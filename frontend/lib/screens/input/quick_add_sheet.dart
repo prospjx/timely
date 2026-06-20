@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:kairos/core/app_spacing.dart';
+import 'package:kairos/core/timely_theme_extension.dart';
 import 'package:kairos/models/schedule_block.dart';
 import 'package:kairos/models/task.dart';
 
@@ -187,10 +189,10 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        left: AppSpacing.md,
+        right: AppSpacing.md,
+        top: AppSpacing.md,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.md,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -271,10 +273,10 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
             Text(
               'AI will find the best time before your deadline based on how free your calendar is.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    color: context.timelyColors.onSurfaceMuted,
                   ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.sm + 4),
           ],
           InkWell(
             onTap: _pickDeadline,
@@ -291,7 +293,9 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
           if (_errorMessage != null) ...[
             Text(
               _errorMessage!,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.redAccent),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.error,
+                  ),
             ),
             const SizedBox(height: 8),
           ],

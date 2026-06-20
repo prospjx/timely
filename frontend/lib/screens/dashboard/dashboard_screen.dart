@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
+import 'package:kairos/core/app_spacing.dart';
 import 'package:kairos/models/schedule_block.dart';
+import 'package:kairos/models/task.dart';
 import 'package:kairos/providers/schedule_provider.dart';
 import 'package:kairos/screens/account/account_screen.dart';
 import 'package:kairos/screens/brief/daily_brief_modal.dart';
 import 'package:kairos/screens/dashboard/widgets/conflict_banner.dart';
 import 'package:kairos/screens/dashboard/widgets/conflict_resolver_sheet.dart';
+import 'package:kairos/screens/dashboard/widgets/dashboard_greeting_header.dart';
 import 'package:kairos/screens/dashboard/widgets/event_detail_sheet.dart';
-import 'package:kairos/screens/dashboard/widgets/month_calendar_view.dart';
+import 'package:kairos/screens/dashboard/widgets/schedule_calendar_section.dart';
 import 'package:kairos/screens/dashboard/widgets/timeline_view.dart';
 import 'package:kairos/screens/input/quick_add_sheet.dart';
 import 'package:kairos/services/notification_service.dart';
@@ -102,14 +104,71 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     }
   }
 
+  void _openDailyBrief() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const DailyBriefModal(),
+    );
+  }
+
+  void _openQuickAdd() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => QuickAddSheet(
+        initialDeadline: _selectedDate,
+        onSubmit: (draft) async {
+          final saved = await ref.read(scheduleProvider.notifier).submitTask(draft);
+          if (!sheetContext.mounted) {
+            return;
+          }
+          if (!saved) {
+            ScaffoldMessenger.of(sheetContext).showSnackBar(
+              SnackBar(
+                content: Text(
+                  draft.timingType == TaskTimingType.deadline
+                      ? 'Saved on this device only. AI scheduling needs the backend — tap the event and use Save to account when connected.'
+                      : 'Saved on this device only — reconnect to sync it to your account.',
+                ),
+              ),
+            );
+          }
+          if (mounted) {
+            setState(() {
+              _selectedDate = draft.scheduledAt;
+            });
+          }
+        },
+      ),
+    );
+  }
+
+  void _onWeekChanged(DateTime weekStart) {
+    ref.read(scheduleProvider.notifier).loadMonthsForWeek(weekStart);
+  }
+
+  void _onDateSelected(DateTime date) {
+    setState(() {
+      _selectedDate = date;
+    });
+    ref.read(scheduleProvider.notifier).loadMonthIfNeeded(date);
+  }
+
+  void _onMonthChanged(DateTime monthDate) {
+    ref.read(scheduleProvider.notifier).loadMonth(monthDate);
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheduleState = ref.watch(scheduleProvider);
-    final selectedDayBlocks = ref.read(scheduleProvider.notifier).blocksForDay(_selectedDate);
+    final monthBlocks = scheduleState.valueOrNull ?? const [];
+    final selectedDayBlocks = monthBlocks.where((block) => block.occursOnDate(_selectedDate)).toList()
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
     final conflictGroups = findConflictGroups(selectedDayBlocks);
     final conflictIds = conflictingBlockIds(selectedDayBlocks);
-    final monthBlocks = scheduleState.valueOrNull ?? const [];
     final conflictDates = conflictDatesInMonth(monthBlocks);
+    final fabClearance = MediaQuery.paddingOf(context).bottom + 80;
 
     return Scaffold(
       appBar: AppBar(
@@ -128,60 +187,56 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       body: RefreshIndicator(
         onRefresh: () => ref.read(scheduleProvider.notifier).refreshSchedule(),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(AppSpacing.md),
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               SliverToBoxAdapter(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      DateFormat.yMMMMEEEEd().format(DateTime.now()),
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 12),
-                    MonthCalendarView(
-                      selectedDate: _selectedDate,
-                      blocks: monthBlocks,
-                      conflictDates: conflictDates,
-                      onDateSelected: (date) {
-                        setState(() {
-                          _selectedDate = date;
-                        });
-                      },
-                      onMonthChanged: (monthDate) {
-                        ref.read(scheduleProvider.notifier).loadMonth(monthDate);
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Schedule for ${DateFormat.yMMMd().format(_selectedDate)}',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 10),
-                    if (conflictGroups.isNotEmpty) ...[
-                      ConflictBanner(
-                        groups: conflictGroups,
-                        onResolve: () => _openConflictResolver(conflictGroups),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-                  ],
+                child: DashboardGreetingHeader(
+                  selectedDate: _selectedDate,
+                  onPlayBrief: _openDailyBrief,
                 ),
               ),
+              const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
               SliverToBoxAdapter(
-                child: SizedBox(
-                  height: conflictGroups.isEmpty ? 320 : 360,
-                  child: scheduleState.when(
-                    loading: () => const Center(child: CircularProgressIndicator()),
-                    error: (error, _) => Center(child: Text('Failed to load schedule: $error')),
-                    data: (_) => TimelineView(
-                      blocks: selectedDayBlocks,
-                      conflictingIds: conflictIds,
-                      onBlockTap: _openEventDetail,
-                      onBlockDelete: _confirmDelete,
-                    ),
+                child: ScheduleCalendarSection(
+                  selectedDate: _selectedDate,
+                  blocks: monthBlocks,
+                  conflictDates: conflictDates,
+                  onDateSelected: _onDateSelected,
+                  onWeekChanged: _onWeekChanged,
+                  onMonthChanged: _onMonthChanged,
+                ),
+              ),
+              if (conflictGroups.isNotEmpty) ...[
+                const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
+                SliverToBoxAdapter(
+                  child: ConflictBanner(
+                    groups: conflictGroups,
+                    onResolve: () => _openConflictResolver(conflictGroups),
+                  ),
+                ),
+              ],
+              const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.sm + 4)),
+              SliverFillRemaining(
+                hasScrollBody: true,
+                child: scheduleState.when(
+                  loading: () => monthBlocks.isEmpty
+                      ? const Center(child: CircularProgressIndicator())
+                      : TimelineView(
+                          blocks: selectedDayBlocks,
+                          conflictingIds: conflictIds,
+                          onBlockTap: _openEventDetail,
+                          onBlockDelete: _confirmDelete,
+                          bottomPadding: fabClearance,
+                        ),
+                  error: (error, _) => Center(child: Text('Failed to load schedule: $error')),
+                  data: (_) => TimelineView(
+                    blocks: selectedDayBlocks,
+                    conflictingIds: conflictIds,
+                    onBlockTap: _openEventDetail,
+                    onBlockDelete: _confirmDelete,
+                    bottomPadding: fabClearance,
                   ),
                 ),
               ),
@@ -189,62 +244,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           ),
         ),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              FloatingActionButton(
-                heroTag: 'brief_fab',
-                onPressed: () {
-                  showModalBottomSheet<void>(
-                    context: context,
-                    isScrollControlled: true,
-                    builder: (_) => const DailyBriefModal(),
-                  );
-                },
-                backgroundColor: const Color(0xFF4EA1FF),
-                foregroundColor: Colors.black,
-                child: const Icon(Icons.play_arrow_rounded),
-              ),
-              FloatingActionButton(
-                heroTag: 'add_task_fab',
-                onPressed: () {
-                  showModalBottomSheet<void>(
-                    context: context,
-                    isScrollControlled: true,
-                    builder: (_) => QuickAddSheet(
-                      initialDeadline: _selectedDate,
-                      onSubmit: (draft) async {
-                        final saved = await ref.read(scheduleProvider.notifier).submitTask(draft);
-                        if (!context.mounted) {
-                          return;
-                        }
-                        if (!saved) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                draft.timingType == TaskTimingType.deadline
-                                    ? 'Saved on this device only. AI scheduling needs the backend — tap the event and use Save to account when connected.'
-                                    : 'Saved on this device only — reconnect to sync it to your account.',
-                              ),
-                            ),
-                          );
-                        }
-                        setState(() {
-                          _selectedDate = draft.scheduledAt;
-                        });
-                      },
-                    ),
-                  );
-                },
-                child: const Icon(Icons.add),
-              ),
-            ],
-          ),
-        ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      floatingActionButton: FloatingActionButton(
+        onPressed: _openQuickAdd,
+        tooltip: 'Add task',
+        child: const Icon(Icons.add),
       ),
     );
   }

@@ -2,10 +2,14 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:kairos/core/app_spacing.dart';
+import 'package:kairos/core/timely_theme_extension.dart';
 import 'package:kairos/models/schedule_block.dart';
 import 'package:kairos/models/task.dart';
 import 'package:kairos/providers/schedule_provider.dart';
 import 'package:kairos/screens/input/quick_add_sheet.dart';
+import 'package:kairos/services/haptic_service.dart';
+import 'package:kairos/widgets/assistant_bubble.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class EventDetailSheet extends ConsumerStatefulWidget {
@@ -86,6 +90,7 @@ class _EventDetailSheetState extends ConsumerState<EventDetailSheet> {
   }
 
   Future<void> _complete() async {
+    await HapticService.lightImpact();
     await _run(
       () => ref.read(scheduleProvider.notifier).completeBlock(block),
       successMessage: '${block.title} marked complete',
@@ -164,16 +169,18 @@ class _EventDetailSheetState extends ConsumerState<EventDetailSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final timely = context.timelyColors;
+    final theme = Theme.of(context);
     final timeLabel = block.allDay
         ? 'All day'
         : '${DateFormat.jm().format(block.startTime)} – ${DateFormat.jm().format(block.endTime)}';
 
     return Padding(
       padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+        left: AppSpacing.lg - 4,
+        right: AppSpacing.lg - 4,
+        top: AppSpacing.md,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.lg,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -184,7 +191,7 @@ class _EventDetailSheetState extends ConsumerState<EventDetailSheet> {
               Expanded(
                 child: Text(
                   block.title,
-                  style: Theme.of(context).textTheme.titleLarge,
+                  style: theme.textTheme.titleLarge,
                 ),
               ),
               IconButton(
@@ -195,9 +202,9 @@ class _EventDetailSheetState extends ConsumerState<EventDetailSheet> {
           ),
           Text(
             DateFormat.yMMMEd().format(block.startTime),
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.white70),
+            style: theme.textTheme.bodyMedium?.copyWith(color: timely.onSurfaceMuted),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.sm + 4),
           _DetailRow(label: 'Time', value: timeLabel),
           _DetailRow(label: 'Type', value: block.type),
           if (block.priority != null) _DetailRow(label: 'Priority', value: block.priority!),
@@ -207,16 +214,22 @@ class _EventDetailSheetState extends ConsumerState<EventDetailSheet> {
               value: DateFormat('EEE, MMM d • h:mm a').format(block.deadlineTime!),
             ),
           _DetailRow(label: 'Source', value: block.sourceLabel),
-          if (block.schedulingNote != null && block.schedulingNote!.isNotEmpty)
-            _DetailRow(label: 'Why this time', value: block.schedulingNote!),
-          if (_message != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              _message!,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFFFFAB91)),
+          if (block.schedulingNote != null && block.schedulingNote!.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.sm),
+            AssistantBubble(
+              message: block.schedulingNote!,
+              label: 'Why this time',
+              icon: Icons.schedule_outlined,
             ),
           ],
-          const SizedBox(height: 16),
+          if (_message != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              _message!,
+              style: theme.textTheme.bodySmall?.copyWith(color: timely.warning),
+            ),
+          ],
+          const SizedBox(height: AppSpacing.md),
           if (block.isLocalOnly) ...[
             SizedBox(
               width: double.infinity,
@@ -226,7 +239,7 @@ class _EventDetailSheetState extends ConsumerState<EventDetailSheet> {
                 label: const Text('Edit'),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.sm),
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
@@ -245,7 +258,7 @@ class _EventDetailSheetState extends ConsumerState<EventDetailSheet> {
                 label: const Text('Edit'),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.sm),
           ],
           if (block.isFromGoogleCalendar && block.googleHtmlLink != null) ...[
             SizedBox(
@@ -256,7 +269,7 @@ class _EventDetailSheetState extends ConsumerState<EventDetailSheet> {
                 label: const Text('Open in Google Calendar'),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.sm),
           ],
           if (block.canComplete) ...[
             SizedBox(
@@ -267,15 +280,15 @@ class _EventDetailSheetState extends ConsumerState<EventDetailSheet> {
                 label: const Text('Mark complete'),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.sm),
           ],
           if (block.canDelete)
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
                 onPressed: _working ? null : _confirmDelete,
-                icon: const Icon(Icons.delete_outline, color: Color(0xFFFF8A80)),
-                label: const Text('Delete', style: TextStyle(color: Color(0xFFFF8A80))),
+                icon: Icon(Icons.delete_outline, color: timely.deleteAction),
+                label: Text('Delete', style: TextStyle(color: timely.deleteAction)),
               ),
             ),
         ],
@@ -292,6 +305,7 @@ class _DetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final timely = context.timelyColors;
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
@@ -301,7 +315,7 @@ class _DetailRow extends StatelessWidget {
             width: 72,
             child: Text(
               label,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white54),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: timely.onSurfaceMuted),
             ),
           ),
           Expanded(

@@ -3,8 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:kairos/core/app_spacing.dart';
+import 'package:kairos/core/timely_theme_extension.dart';
 import 'package:kairos/providers/brief_provider.dart';
 import 'package:kairos/services/audio_service.dart';
+import 'package:kairos/services/haptic_service.dart';
+import 'package:kairos/widgets/assistant_bubble.dart';
+import 'package:kairos/widgets/zen_card.dart';
 
 class DailyBriefModal extends ConsumerStatefulWidget {
   const DailyBriefModal({super.key});
@@ -13,42 +18,76 @@ class DailyBriefModal extends ConsumerStatefulWidget {
   ConsumerState<DailyBriefModal> createState() => _DailyBriefModalState();
 }
 
-class _DailyBriefModalState extends ConsumerState<DailyBriefModal> {
+class _DailyBriefModalState extends ConsumerState<DailyBriefModal>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _fadeController;
+  late Animation<double> _fadeAnimation;
+
   @override
   void initState() {
     super.initState();
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _fadeAnimation = CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
+    _fadeController.forward();
+  }
+
+  @override
+  void dispose() {
+    _fadeController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final briefState = ref.watch(briefControllerProvider);
+    final theme = Theme.of(context);
 
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.md),
         child: briefState.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (error, _) => Center(child: Text(_friendlyBriefError(error))),
           data: (brief) {
             if (brief == null) {
-              return const Center(child: Text('No brief available right now.'));
+              return Center(
+                child: Text(
+                  'No brief available right now.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: context.timelyColors.onSurfaceMuted,
+                  ),
+                ),
+              );
             }
 
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Daily Brief • ${DateFormat.yMMMd().format(DateTime.now())}',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 12),
-                Text(brief.text),
-                const SizedBox(height: 20),
-                if (brief.audioUrl != null) _AudioControls(url: brief.audioUrl!),
-                if (brief.audioUrl == null)
-                  _LocalTtsControls(text: brief.text),
-              ],
+            return FadeTransition(
+              opacity: _fadeAnimation,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Daily Brief • ${DateFormat.yMMMd().format(DateTime.now())}',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  AssistantBubble(message: brief.text),
+                  const SizedBox(height: AppSpacing.lg - 4),
+                  if (brief.audioUrl != null)
+                    ZenCard(
+                      tint: context.timelyColors.surfaceElevated,
+                      child: _AudioControls(url: brief.audioUrl!),
+                    ),
+                  if (brief.audioUrl == null)
+                    ZenCard(
+                      tint: context.timelyColors.surfaceElevated,
+                      child: _LocalTtsControls(text: brief.text),
+                    ),
+                ],
+              ),
             );
           },
         ),
@@ -91,12 +130,16 @@ class _LocalTtsControlsState extends ConsumerState<_LocalTtsControls> {
   @override
   Widget build(BuildContext context) {
     final audioService = ref.read(audioServiceProvider);
+    final timely = context.timelyColors;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Live audio unavailable. Using device voice.'),
-        const SizedBox(height: 12),
+        Text(
+          'Live audio unavailable. Using device voice.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: timely.onSurfaceMuted),
+        ),
+        const SizedBox(height: AppSpacing.sm + 4),
         FilledButton.icon(
           onPressed: () async {
             if (_speaking) {
@@ -107,6 +150,7 @@ class _LocalTtsControlsState extends ConsumerState<_LocalTtsControls> {
               return;
             }
 
+            await HapticService.lightImpact();
             await audioService.speakBriefText(widget.text);
             if (mounted) {
               setState(() => _speaking = true);
@@ -147,8 +191,9 @@ class _AudioControls extends ConsumerWidget {
                     LinearProgressIndicator(
                       value: value / maxMs,
                       minHeight: 8,
+                      borderRadius: BorderRadius.circular(4),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: AppSpacing.sm),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -162,7 +207,7 @@ class _AudioControls extends ConsumerWidget {
             );
           },
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: AppSpacing.sm + 4),
         StreamBuilder<PlayerState>(
           stream: audioService.playerStateStream,
           builder: (context, snapshot) {
@@ -172,6 +217,7 @@ class _AudioControls extends ConsumerWidget {
                 if (isPlaying) {
                   await audioService.pause();
                 } else {
+                  await HapticService.lightImpact();
                   await audioService.playBrief(url);
                 }
               },

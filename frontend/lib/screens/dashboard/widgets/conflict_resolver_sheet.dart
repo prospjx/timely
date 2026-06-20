@@ -1,8 +1,11 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:kairos/core/app_spacing.dart';
+import 'package:kairos/core/timely_theme_extension.dart';
 import 'package:kairos/models/schedule_block.dart';
 import 'package:kairos/screens/dashboard/widgets/conflict_banner.dart';
+import 'package:kairos/services/haptic_service.dart';
 import 'package:kairos/utils/schedule_conflicts.dart';
 
 class ConflictResolverSheet extends StatefulWidget {
@@ -65,6 +68,7 @@ class _ConflictResolverSheetState extends State<ConflictResolverSheet> {
     });
 
     try {
+      await HapticService.selectionClick();
       final result = await widget.onAutoResolve(_priorityOrder);
       if (!mounted) {
         return;
@@ -174,16 +178,18 @@ class _ConflictResolverSheetState extends State<ConflictResolverSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final timely = context.timelyColors;
+    final theme = Theme.of(context);
     final ordered = _orderedBlocks;
     final canAutoFix = widget.groups.any((group) => group.hasResolvableBlock);
     final hasLocalOnly = ordered.any((block) => block.isLocalOnly);
 
     return Padding(
       padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+        left: AppSpacing.lg - 4,
+        right: AppSpacing.lg - 4,
+        top: AppSpacing.md,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppSpacing.lg,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -191,12 +197,12 @@ class _ConflictResolverSheetState extends State<ConflictResolverSheet> {
         children: [
           Row(
             children: [
-              const Icon(Icons.event_busy, color: Color(0xFFFF8A80)),
+              Icon(Icons.event_available_outlined, color: timely.conflictIcon),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Resolve conflicts',
-                  style: Theme.of(context).textTheme.titleLarge,
+                  "Let's make room",
+                  style: theme.textTheme.titleLarge,
                 ),
               ),
               IconButton(
@@ -207,29 +213,29 @@ class _ConflictResolverSheetState extends State<ConflictResolverSheet> {
           ),
           Text(
             DateFormat.yMMMEd().format(widget.date),
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.white70),
+            style: theme.textTheme.bodyMedium?.copyWith(color: timely.onSurfaceMuted),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
           Text(
             canAutoFix
                 ? 'Top events stay put. Lower Timely events move to the next open slot.'
                 : 'These overlaps are between Google Calendar events. Edit them in Google Calendar.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white60),
+            style: theme.textTheme.bodySmall?.copyWith(color: timely.onSurfaceMuted),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.md),
           if (hasLocalOnly) ...[
             Text(
               'Events marked "Saved on device only" were created while offline. Tap the cloud icon to save them.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFFFFCC80)),
+              style: theme.textTheme.bodySmall?.copyWith(color: timely.warning),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.sm + 4),
           ],
           for (final group in widget.groups) ...[
             Text(
               formatConflictWindow(group),
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(color: const Color(0xFFFFAB91)),
+              style: theme.textTheme.labelLarge?.copyWith(color: timely.conflictBorder),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.sm),
           ],
           Flexible(
             child: ReorderableListView.builder(
@@ -252,12 +258,12 @@ class _ConflictResolverSheetState extends State<ConflictResolverSheet> {
 
                 return Card(
                   key: ValueKey(block.id),
-                  margin: const EdgeInsets.only(bottom: 8),
-                  color: inConflict ? const Color(0xFF2A1414) : const Color(0xFF101818),
+                  margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  color: inConflict ? timely.warningSurface : timely.surfaceElevated,
                   child: ListTile(
                     leading: ReorderableDragStartListener(
                       index: index,
-                      child: const Icon(Icons.drag_handle, color: Colors.white54),
+                      child: Icon(Icons.drag_handle, color: timely.onSurfaceMuted),
                     ),
                     title: Text(block.title),
                     subtitle: Text(
@@ -285,20 +291,20 @@ class _ConflictResolverSheetState extends State<ConflictResolverSheet> {
                                 onPressed: _working ? null : () => _pickNewTime(block),
                                 icon: const Icon(Icons.schedule),
                               )
-                            : const Icon(Icons.lock_outline, color: Colors.white38, size: 18),
+                            : Icon(Icons.lock_outline, color: timely.onSurfaceMuted.withValues(alpha: 0.6), size: 18),
                   ),
                 );
               },
             ),
           ),
           if (_message != null) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: AppSpacing.sm),
             Text(
               _message!,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFFFFAB91)),
+              style: theme.textTheme.bodySmall?.copyWith(color: timely.warning),
             ),
           ],
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.sm + 4),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(

@@ -2,9 +2,14 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:kairos/core/app_spacing.dart';
 import 'package:kairos/core/constants.dart';
+import 'package:kairos/core/timely_theme_extension.dart';
 import 'package:kairos/providers/schedule_provider.dart';
+import 'package:kairos/providers/theme_provider.dart';
 import 'package:kairos/services/api_service.dart';
+import 'package:kairos/services/haptic_service.dart';
+import 'package:kairos/widgets/zen_card.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
   const AccountScreen({super.key});
@@ -134,48 +139,95 @@ class _AccountScreenState extends ConsumerState<AccountScreen> {
   Widget build(BuildContext context) {
     final linked = _info != null && (_info!['linked'] == true);
     final info = _info?['info'] as Map<String, dynamic>?;
+    final themeMode = ref.watch(themeModeProvider);
+    final isDark = isDarkThemeActive(themeMode, MediaQuery.platformBrightnessOf(context));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Account')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (_loading) const LinearProgressIndicator(),
-            const SizedBox(height: 12),
-            Text('Google Calendar', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(linked ? 'Connected' : 'Not connected'),
-            const SizedBox(height: 12),
-            if (linked && info != null) ...[
-              Text('Scopes: ${info['scopes'] ?? []}'),
-              const SizedBox(height: 6),
-              Text('Expiry: ${info['expiry'] ?? 'unknown'}'),
-              const SizedBox(height: 12),
-            ],
-            Row(
+      body: ListView(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        children: [
+          if (_loading) const LinearProgressIndicator(),
+          const SizedBox(height: AppSpacing.sm + 4),
+          Text('Appearance', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: AppSpacing.sm),
+          ZenCard(
+            child: SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Dark theme'),
+              subtitle: Text(
+                isDark ? 'Calm dark surfaces' : 'Zen light surfaces',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: context.timelyColors.onSurfaceMuted,
+                    ),
+              ),
+              secondary: Icon(
+                isDark ? Icons.dark_mode : Icons.light_mode,
+                color: context.timelyColors.primary,
+              ),
+              value: isDark,
+              onChanged: (enabled) async {
+                await HapticService.selectionClick();
+                await ref.read(themeModeProvider.notifier).setDarkEnabled(enabled);
+              },
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg - 4),
+          Text('Google Calendar', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: AppSpacing.sm),
+          ZenCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ElevatedButton(
-                  onPressed: _connect,
-                  child: const Text('Connect'),
+                Text(
+                  linked ? 'Connected' : 'Not connected',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: linked
+                            ? context.timelyColors.secondary
+                            : context.timelyColors.onSurfaceMuted,
+                      ),
                 ),
-                const SizedBox(width: 12),
-                ElevatedButton(
-                  onPressed: linked ? _disconnect : null,
-                  child: const Text('Disconnect'),
-                ),
+                if (linked && info != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    'Scopes: ${info['scopes'] ?? []}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: context.timelyColors.onSurfaceMuted,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Expiry: ${info['expiry'] ?? 'unknown'}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: context.timelyColors.onSurfaceMuted,
+                        ),
+                  ),
+                ],
               ],
             ),
-            if (linked) ...[
-              const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: _syncCalendar,
-                child: const Text('Sync calendar events'),
+          ),
+          const SizedBox(height: AppSpacing.sm + 4),
+          Row(
+            children: [
+              ElevatedButton(
+                onPressed: _connect,
+                child: const Text('Connect'),
+              ),
+              const SizedBox(width: 12),
+              ElevatedButton(
+                onPressed: linked ? _disconnect : null,
+                child: const Text('Disconnect'),
               ),
             ],
+          ),
+          if (linked) ...[
+            const SizedBox(height: 12),
+            OutlinedButton(
+              onPressed: _syncCalendar,
+              child: const Text('Sync calendar events'),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }
