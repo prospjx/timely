@@ -11,6 +11,8 @@ class ScheduleBlock {
     this.priority,
     this.allDay = false,
     this.source,
+    this.deadlineTime,
+    this.schedulingNote,
     this.taskId,
     this.googleEventId,
     this.googleHtmlLink,
@@ -24,6 +26,8 @@ class ScheduleBlock {
   final String? priority;
   final bool allDay;
   final String? source;
+  final DateTime? deadlineTime;
+  final String? schedulingNote;
   final String? taskId;
   final String? googleEventId;
   final String? googleHtmlLink;
@@ -41,6 +45,12 @@ class ScheduleBlock {
     if (isFromGoogleCalendar) {
       return 'Google Calendar';
     }
+    if (source == 'ai_deadline') {
+      return 'AI scheduled (deadline)';
+    }
+    if (source == 'ai_scheduled') {
+      return 'AI scheduled';
+    }
     return 'Timely';
   }
 
@@ -57,7 +67,7 @@ class ScheduleBlock {
     return TaskDraft(
       title: title,
       priority: priorityCode,
-      scheduledAt: startTime,
+      scheduledAt: deadlineTime ?? (isEvent ? startTime : endTime),
       timingType: isEvent ? TaskTimingType.event : TaskTimingType.deadline,
       durationMinutes: durationMinutes,
     );
@@ -77,6 +87,10 @@ class ScheduleBlock {
       priority: json['priority'] as String?,
       allDay: json['all_day'] == true,
       source: json['source'] as String?,
+      deadlineTime: json['deadline_time'] == null
+          ? null
+          : parseApiDateTime(json['deadline_time'] as String),
+      schedulingNote: json['scheduling_note'] as String?,
       taskId: json['task_id']?.toString(),
       googleEventId: json['google_event_id'] as String?,
       googleHtmlLink: json['google_html_link'] as String?,
@@ -106,6 +120,8 @@ class ScheduleBlock {
       'priority': priority,
       'all_day': allDay,
       'source': source,
+      'deadline_time': deadlineTime?.toUtc().toIso8601String(),
+      'scheduling_note': schedulingNote,
       'task_id': taskId,
       'google_event_id': googleEventId,
       'google_html_link': googleHtmlLink,
@@ -127,6 +143,8 @@ class ScheduleBlock {
     String? priority,
     bool? allDay,
     String? source,
+    DateTime? deadlineTime,
+    String? schedulingNote,
     String? taskId,
     String? googleEventId,
     String? googleHtmlLink,
@@ -140,6 +158,8 @@ class ScheduleBlock {
       priority: priority ?? this.priority,
       allDay: allDay ?? this.allDay,
       source: source ?? this.source,
+      deadlineTime: deadlineTime ?? this.deadlineTime,
+      schedulingNote: schedulingNote ?? this.schedulingNote,
       taskId: taskId ?? this.taskId,
       googleEventId: googleEventId ?? this.googleEventId,
       googleHtmlLink: googleHtmlLink ?? this.googleHtmlLink,

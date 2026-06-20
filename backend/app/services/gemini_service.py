@@ -5,8 +5,16 @@ import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from pydantic import BaseModel, Field
+
 from app.core.config import get_settings
+from app.core.datetime_utils import ensure_aware
 from app.models.schemas import ParsedTask, TaskPriority
+
+
+class DeadlineSlotSuggestion(BaseModel):
+    start_time: datetime
+    reason: str = Field(default="", max_length=280)
 
 try:
     import google.generativeai as genai
@@ -195,6 +203,45 @@ async def parse_task(raw_text: str, timezone: str = "UTC") -> ParsedTask:
         elif force_deadline_mode and forced_deadline is not None:
             parsed = parsed.model_copy(update={"fixed_day": False, "deadline": forced_deadline})
         return parsed
+
+
+async def suggest_deadline_slot(
+    *,
+    task: dict,
+    availability: dict,
+    timezone: str,
+) -> DeadlineSlotSuggestion | None:
+    """Pick a start time for a deadline task using calendar availability context."""
+    model = _get_model()
+    if model is None:
+        return None
+
+    now_iso = datetime.now(ZoneInfo(timezone)).isoformat()
+    prompt = (
+        "You are Timely's scheduling assistant. Place a flexible deadline task on the user's calendar.\n"
+        "Rules:\n"
+        "- The work block must fit entirely before the task deadline (start + duration <= deadline).\n"
+        "- start_time must fall inside one of the provided free windows.\n"
+        "- Prefer days with more free time when the deadline is far away.\n"
+        "- When the deadline is soon (within ~2 days), schedule earlier even if that day is busier.\n"
+        "- Higher priority tasks should be scheduled sooner when the deadline is tight.\n"
+        "- Return JSON with exactly: start_time (ISO 8601 with timezone offset), reason (one short sentence).\n"
+        f"Current user-local datetime: {now_iso}\n"
+        f"Task and availability JSON:\n{json.dumps(availability, default=str)}"
+    )
+
+    try:
+        response = await model.generate_content_async(
+            prompt,
+            generation_config={"response_mime_type": "application/json"},
+        )
+        payload = json.loads(response.text)
+        suggestion = DeadlineSlotSuggestion.model_validate(payload)
+        zone = ZoneInfo(timezone)
+        start = ensure_aware(suggestion.start_time, assume_tz=zone)
+        return suggestion.model_copy(update={"start_time": start})
+    except Exception:
+        return None
 
 
 async def generate_brief(

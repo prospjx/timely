@@ -101,6 +101,7 @@ class ScheduleBlockOut(BaseModel):
     type: ScheduleBlockType
     all_day: bool = False
     source: str | None = None
+    scheduling_note: str | None = None
     google_event_id: str | None = None
     google_html_link: str | None = None
 

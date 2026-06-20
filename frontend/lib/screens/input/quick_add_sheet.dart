@@ -76,7 +76,7 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
     final block = widget.initialBlock;
     if (block != null) {
       _titleController.text = block.title;
-      _scheduledAt = block.startTime;
+      _scheduledAt = block.deadlineTime ?? block.endTime;
       _durationController.text = block.duration.inMinutes.toString();
       _priority = _priorityFromString(block.priority);
       _timingType = block.type.toLowerCase().contains('meeting')
@@ -267,6 +267,15 @@ class _QuickAddSheetState extends State<QuickAddSheet> {
             ),
           ),
           const SizedBox(height: 12),
+          if (!widget.isEditMode && _timingType == TaskTimingType.deadline) ...[
+            Text(
+              'AI will find the best time before your deadline based on how free your calendar is.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+            const SizedBox(height: 12),
+          ],
           InkWell(
             onTap: _pickDeadline,
             borderRadius: BorderRadius.circular(14),

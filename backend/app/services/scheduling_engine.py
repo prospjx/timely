@@ -5,9 +5,10 @@ from zoneinfo import ZoneInfo
 
 from bson import ObjectId
 
-from app.core.datetime_utils import ensure_aware
+from app.core.datetime_utils import ensure_aware, start_of_local_day
 from app.db.mongo import mongo
 from app.models.schemas import ScheduleBlockType, TaskPriority
+from app.services import gemini_service
 
 
 def _wake_sleep_datetimes(reference: datetime, wake_time: str, sleep_time: str) -> tuple[datetime, datetime]:
@@ -349,6 +350,239 @@ async def _find_slot_between(
     return None
 
 
+async def _fetch_blocks_in_range(
+    user_id: ObjectId,
+    range_start: datetime,
+    range_end: datetime,
+) -> list[dict]:
+    blocks = mongo.collection("schedule_blocks")
+    cursor = blocks.find(
+        {
+            "user_id": user_id,
+            "all_day": {"$ne": True},
+            "start_time": {"$lt": range_end},
+            "end_time": {"$gt": range_start},
+        }
+    ).sort("start_time", 1)
+    return [doc async for doc in cursor]
+
+
+def _merge_busy_intervals(
+    blocks: list[dict],
+    window_start: datetime,
+    window_end: datetime,
+) -> list[tuple[datetime, datetime]]:
+    clipped: list[tuple[datetime, datetime]] = []
+    for block in blocks:
+        start = ensure_aware(block["start_time"], assume_tz=window_start.tzinfo)
+        end = ensure_aware(block["end_time"], assume_tz=window_start.tzinfo)
+        clip_start = max(start, window_start)
+        clip_end = min(end, window_end)
+        if clip_start < clip_end:
+            clipped.append((clip_start, clip_end))
+
+    if not clipped:
+        return []
+
+    clipped.sort(key=lambda item: item[0])
+    merged = [clipped[0]]
+    for start, end in clipped[1:]:
+        last_start, last_end = merged[-1]
+        if start <= last_end:
+            merged[-1] = (last_start, max(last_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _free_windows(
+    window_start: datetime,
+    window_end: datetime,
+    busy: list[tuple[datetime, datetime]],
+    min_duration: timedelta,
+) -> list[tuple[datetime, datetime]]:
+    if window_end - window_start < min_duration:
+        return []
+
+    if not busy:
+        return [(window_start, window_end)]
+
+    free: list[tuple[datetime, datetime]] = []
+    cursor = window_start
+    for busy_start, busy_end in busy:
+        if busy_start - cursor >= min_duration:
+            free.append((cursor, busy_start))
+        cursor = max(cursor, busy_end)
+    if window_end - cursor >= min_duration:
+        free.append((cursor, window_end))
+    return free
+
+
+def _format_local_time(value: datetime) -> str:
+    return value.strftime("%H:%M")
+
+
+async def _build_deadline_availability(
+    *,
+    user_doc: dict,
+    earliest: datetime,
+    deadline: datetime,
+    duration: timedelta,
+) -> dict:
+    user_id = user_doc["_id"]
+    preferences = user_doc.get("preferences", {})
+    wake_time = preferences.get("wake_time", "07:00")
+    sleep_time = preferences.get("sleep_time", "22:30")
+    timezone_name = user_doc.get("timezone", "UTC")
+    zone = ZoneInfo(timezone_name)
+    earliest = ensure_aware(earliest, assume_tz=zone)
+    deadline = ensure_aware(deadline, assume_tz=zone)
+
+    range_blocks = await _fetch_blocks_in_range(user_id, earliest, deadline)
+    days: list[dict] = []
+    day_cursor = start_of_local_day(earliest, timezone_name)
+
+    while day_cursor < deadline:
+        day_start, day_end = _wake_sleep_datetimes(day_cursor, wake_time, sleep_time)
+        effective_start = max(earliest, day_start)
+        effective_end = min(deadline, day_end)
+        if effective_start < effective_end:
+            day_blocks = [
+                block
+                for block in range_blocks
+                if ensure_aware(block["end_time"], assume_tz=zone) > effective_start
+                and ensure_aware(block["start_time"], assume_tz=zone) < effective_end
+            ]
+            busy = _merge_busy_intervals(day_blocks, effective_start, effective_end)
+            windows = _free_windows(effective_start, effective_end, busy, duration)
+            busy_minutes = int(sum((end - start).total_seconds() // 60 for start, end in busy))
+            window_minutes = int(sum((end - start).total_seconds() // 60 for start, end in windows))
+            events = [
+                f"{_format_local_time(ensure_aware(block['start_time'], assume_tz=zone))} "
+                f"{block.get('title') or block.get('type') or 'Event'}"
+                for block in day_blocks
+            ]
+            days.append(
+                {
+                    "date": day_cursor.date().isoformat(),
+                    "free_minutes": window_minutes,
+                    "busy_minutes": busy_minutes,
+                    "events": events[:12],
+                    "windows": [
+                        {"start": start.isoformat(), "end": end.isoformat()}
+                        for start, end in windows
+                    ],
+                }
+            )
+        day_cursor = day_start + timedelta(days=1)
+
+    hours_until_deadline = max(0.0, (deadline - earliest).total_seconds() / 3600)
+    return {
+        "timezone": timezone_name,
+        "urgency_hours": hours_until_deadline,
+        "days": days,
+    }
+
+
+async def _slot_is_available(
+    user_id: ObjectId,
+    start_time: datetime,
+    end_time: datetime,
+    *,
+    exclude_block_id: ObjectId | None = None,
+) -> bool:
+    overlap = await _find_overlap(
+        user_id,
+        start_time,
+        end_time,
+        exclude_block_id=exclude_block_id,
+    )
+    return overlap is None
+
+
+def _start_in_availability_windows(
+    start_time: datetime,
+    end_time: datetime,
+    availability: dict,
+) -> bool:
+    for day in availability.get("days", []):
+        for window in day.get("windows", []):
+            window_start = datetime.fromisoformat(window["start"])
+            window_end = datetime.fromisoformat(window["end"])
+            if start_time >= window_start and end_time <= window_end:
+                return True
+    return False
+
+
+async def _pick_freest_slot_before_deadline(
+    *,
+    user_doc: dict,
+    deadline: datetime,
+    duration: timedelta,
+    starts_not_before: datetime,
+    availability: dict,
+) -> tuple[datetime, datetime] | None:
+    user_id = user_doc["_id"]
+    preferences = user_doc.get("preferences", {})
+    wake_time = preferences.get("wake_time", "07:00")
+    sleep_time = preferences.get("sleep_time", "22:30")
+    step = timedelta(minutes=15)
+    timezone_name = user_doc.get("timezone", "UTC")
+    zone = ZoneInfo(timezone_name)
+    deadline = ensure_aware(deadline, assume_tz=zone)
+    starts_not_before = ensure_aware(starts_not_before, assume_tz=zone)
+    urgency_hours = float(availability.get("urgency_hours", 72))
+
+    if urgency_hours <= 48:
+        ranked_days = sorted(
+            availability.get("days", []),
+            key=lambda day: (day.get("date", ""), -int(day.get("free_minutes", 0))),
+        )
+    else:
+        ranked_days = sorted(
+            availability.get("days", []),
+            key=lambda day: (-int(day.get("free_minutes", 0)), day.get("date", "")),
+        )
+
+    for day in ranked_days:
+        for window in day.get("windows", []):
+            window_start = datetime.fromisoformat(window["start"])
+            window_end = datetime.fromisoformat(window["end"])
+            if window_end - window_start < duration:
+                continue
+            search_start = max(window_start, starts_not_before)
+            if search_start >= window_end:
+                continue
+            slot = await _find_slot_between(
+                user_id=user_id,
+                window_start=search_start,
+                window_end=window_end,
+                duration=duration,
+                step=step,
+            )
+            if slot is not None:
+                return slot
+
+    day_cursor = starts_not_before
+    while day_cursor < deadline:
+        day_start, day_end = _wake_sleep_datetimes(day_cursor, wake_time, sleep_time)
+        window_start = max(starts_not_before, day_start)
+        window_end = min(deadline, day_end)
+        if window_start < window_end:
+            slot = await _find_slot_between(
+                user_id=user_id,
+                window_start=window_start,
+                window_end=window_end,
+                duration=duration,
+                step=step,
+            )
+            if slot is not None:
+                return slot
+        day_cursor = day_start + timedelta(days=1)
+
+    return None
+
+
 async def _next_slot_before_deadline(
     *,
     user_doc: dict,
@@ -423,25 +657,75 @@ async def schedule_deadline_block(user_doc: dict, task_doc: dict, *, starts_not_
     earliest = max(now_local, earliest_start)
     duration = timedelta(minutes=task_doc["estimated_minutes"])
 
-    slot = await _next_slot_before_deadline(
+    availability = await _build_deadline_availability(
         user_doc=user_doc,
+        earliest=earliest,
         deadline=deadline,
         duration=duration,
-        starts_not_before=earliest,
     )
-    if slot is None:
-        raise ValueError("No available schedule slot before deadline")
+    availability["task"] = {
+        "title": task_doc.get("title") or task_doc.get("raw_input") or "Task",
+        "priority": task_doc.get("priority", TaskPriority.medium.value),
+        "duration_minutes": task_doc["estimated_minutes"],
+        "deadline": deadline.isoformat(),
+    }
 
-    start_time, end_time = slot
-    return {
+    scheduling_source = task_doc.get("source", "manual")
+    scheduling_note: str | None = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+
+    suggestion = await gemini_service.suggest_deadline_slot(
+        task=availability["task"],
+        availability=availability,
+        timezone=timezone,
+    )
+    if suggestion is not None:
+        candidate_start = ensure_aware(suggestion.start_time, assume_tz=zone)
+        candidate_end = candidate_start + duration
+        if (
+            candidate_start >= earliest
+            and candidate_end <= deadline
+            and _start_in_availability_windows(candidate_start, candidate_end, availability)
+            and await _slot_is_available(user_doc["_id"], candidate_start, candidate_end)
+        ):
+            start_time, end_time = candidate_start, candidate_end
+            scheduling_source = "ai_deadline"
+            scheduling_note = suggestion.reason or None
+
+    if start_time is None:
+        slot = await _pick_freest_slot_before_deadline(
+            user_doc=user_doc,
+            deadline=deadline,
+            duration=duration,
+            starts_not_before=earliest,
+            availability=availability,
+        )
+        if slot is None:
+            slot = await _next_slot_before_deadline(
+                user_doc=user_doc,
+                deadline=deadline,
+                duration=duration,
+                starts_not_before=earliest,
+            )
+        if slot is None:
+            raise ValueError("No available schedule slot before deadline")
+        start_time, end_time = slot
+        if scheduling_source == task_doc.get("source", "manual"):
+            scheduling_source = "ai_scheduled"
+
+    block: dict = {
         "user_id": user_doc["_id"],
         "task_id": task_doc["_id"],
         "start_time": start_time,
         "end_time": end_time,
         "type": ScheduleBlockType.task.value,
-        "source": task_doc.get("source", "manual"),
+        "source": scheduling_source,
         "priority": task_doc.get("priority", TaskPriority.medium.value),
     }
+    if scheduling_note:
+        block["scheduling_note"] = scheduling_note
+    return block
 
 
 async def schedule_task(user_doc: dict, task_doc: dict) -> dict:

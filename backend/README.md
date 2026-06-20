@@ -39,3 +39,26 @@ Required/optional headers:
 - If Gemini keys are missing, task parsing and brief generation fall back to deterministic local behavior.
 - If ElevenLabs or Firebase are not configured, brief endpoint still succeeds but may skip audio or push delivery.
 - `/audio/*` is served from local generated files. Use `AUDIO_PUBLIC_BASE_URL` if this backend is exposed externally.
+
+## Testing
+Install dev dependencies and run the test suite:
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest tests -v
+```
+
+- **Unit tests** (datetime helpers, diagnostics scoring, Gemini fallback parsing) run without external services.
+- **Integration tests** (`@pytest.mark.integration`) require MongoDB on `mongodb://localhost:27017` and use the `kairos_test` database. They are skipped automatically when MongoDB is unavailable.
+
+Run only integration tests:
+
+```bash
+python -m pytest tests -m integration -v
+```
+
+Run only unit tests:
+
+```bash
+python -m pytest tests -m "not integration" -v
+```

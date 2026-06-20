@@ -224,9 +224,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                         }
                         if (!saved) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
+                            SnackBar(
                               content: Text(
-                                'Saved on this device only — reconnect to sync it to your account.',
+                                draft.timingType == TaskTimingType.deadline
+                                    ? 'Saved on this device only. AI scheduling needs the backend — tap the event and use Save to account when connected.'
+                                    : 'Saved on this device only — reconnect to sync it to your account.',
                               ),
                             ),
                           );

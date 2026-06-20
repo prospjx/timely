@@ -56,8 +56,8 @@ class ScheduleNotifier extends AsyncNotifier<List<ScheduleBlock>> {
       await _persistDraftToServer(draft);
       return true;
     } catch (_) {
-      final localBlock = _localBlockFromDraft(draft);
       final currentBlocks = state.valueOrNull ?? <ScheduleBlock>[];
+      final localBlock = _localBlockFromDraft(draft, currentBlocks);
       final updated = <ScheduleBlock>[localBlock, ...currentBlocks]..sort(
         (a, b) => a.startTime.compareTo(b.startTime),
       );
@@ -397,11 +397,30 @@ class ScheduleNotifier extends AsyncNotifier<List<ScheduleBlock>> {
     await refreshSchedule();
   }
 
-  ScheduleBlock _localBlockFromDraft(TaskDraft draft) {
+  ScheduleBlock _localBlockFromDraft(TaskDraft draft, List<ScheduleBlock> existingBlocks) {
     final duration = Duration(minutes: draft.durationMinutes);
 
-    final start = draft.scheduledAt;
-    final end = start.add(duration);
+    late DateTime start;
+    late DateTime end;
+    DateTime? deadlineTime;
+
+    if (draft.timingType == TaskTimingType.deadline) {
+      deadlineTime = draft.scheduledAt;
+      final slot = _findLocalDeadlineSlot(
+        draft: draft,
+        blocks: existingBlocks,
+      );
+      if (slot != null) {
+        start = slot.$1;
+        end = slot.$2;
+      } else {
+        start = draft.scheduledAt.subtract(duration);
+        end = draft.scheduledAt;
+      }
+    } else {
+      start = draft.scheduledAt;
+      end = start.add(duration);
+    }
 
     return ScheduleBlock(
       id: 'local_${start.microsecondsSinceEpoch}',
@@ -410,6 +429,59 @@ class ScheduleNotifier extends AsyncNotifier<List<ScheduleBlock>> {
       endTime: end,
       type: draft.timingType == TaskTimingType.event ? 'Meeting' : 'Task',
       priority: draft.priority.backendWord.toLowerCase(),
+      deadlineTime: deadlineTime,
     );
+  }
+
+  bool _slotOverlaps(
+    List<ScheduleBlock> blocks,
+    DateTime start,
+    DateTime end, {
+    String? excludeId,
+  }) {
+    return blocks.any((block) {
+      if (block.id == excludeId || block.allDay) {
+        return false;
+      }
+      return block.startTime.isBefore(end) && block.endTime.isAfter(start);
+    });
+  }
+
+  DateTime _roundUpToStep(DateTime value, Duration step) {
+    final epoch = value.millisecondsSinceEpoch;
+    final stepMs = step.inMilliseconds;
+    final rounded = ((epoch + stepMs - 1) ~/ stepMs) * stepMs;
+    return DateTime.fromMillisecondsSinceEpoch(rounded);
+  }
+
+  (DateTime, DateTime)? _findLocalDeadlineSlot({
+    required TaskDraft draft,
+    required List<ScheduleBlock> blocks,
+  }) {
+    final deadline = draft.scheduledAt;
+    final duration = Duration(minutes: draft.durationMinutes);
+    final now = DateTime.now();
+    if (!deadline.isAfter(now)) {
+      return null;
+    }
+
+    const step = Duration(minutes: 15);
+
+    final finishAtDeadline = deadline.subtract(duration);
+    if (!finishAtDeadline.isBefore(now) &&
+        !_slotOverlaps(blocks, finishAtDeadline, deadline)) {
+      return (finishAtDeadline, deadline);
+    }
+
+    var cursor = _roundUpToStep(now, step);
+    while (!cursor.add(duration).isAfter(deadline)) {
+      final candidateEnd = cursor.add(duration);
+      if (!_slotOverlaps(blocks, cursor, candidateEnd)) {
+        return (cursor, candidateEnd);
+      }
+      cursor = cursor.add(step);
+    }
+
+    return null;
   }
 }

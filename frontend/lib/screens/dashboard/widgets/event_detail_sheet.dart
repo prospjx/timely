@@ -201,7 +201,14 @@ class _EventDetailSheetState extends ConsumerState<EventDetailSheet> {
           _DetailRow(label: 'Time', value: timeLabel),
           _DetailRow(label: 'Type', value: block.type),
           if (block.priority != null) _DetailRow(label: 'Priority', value: block.priority!),
+          if (block.deadlineTime != null)
+            _DetailRow(
+              label: 'Deadline',
+              value: DateFormat('EEE, MMM d • h:mm a').format(block.deadlineTime!),
+            ),
           _DetailRow(label: 'Source', value: block.sourceLabel),
+          if (block.schedulingNote != null && block.schedulingNote!.isNotEmpty)
+            _DetailRow(label: 'Why this time', value: block.schedulingNote!),
           if (_message != null) ...[
             const SizedBox(height: 8),
             Text(
